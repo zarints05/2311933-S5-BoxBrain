@@ -4,9 +4,9 @@
 |---|---|
 | **Product** | BoxBrain |
 | **Document** | Product Requirements Document (PRD) |
-| **Version** | 1.0 |
-| **Date** | October 2026 |
-| **Author** | Rifat |
+| **Version** | 1.1 |
+| **Date** | November 2026 |
+| **Author** | Zarin Tasnim (2311933) |
 | **Related docs** | [SRS](02-srs.md) · [TDD](03-tdd.md) |
 
 ---
@@ -45,8 +45,10 @@ The product is built in two releases. Every feature, story and milestone in this
 
 | Release | When | Tag | Focus |
 |---|---|---|---|
-| **MVP** | Demo before mid-term | `v0.1.0` | Locations, boxes and items (CRUD), QR labels, scan to open a box page, search with location path, "not opened for 12 months" filter. One shared inventory, no accounts. |
-| **Beta** | Demo before final | `v0.2.0` | Accounts, private households shared with family or flatmates (`owner` / `member`), photos, box history, moving mode, label sheets, fuzzy search, admin dashboard and ban, security hardening. |
+| **MVP** | Demo before mid-term | `v0.1.0` | Box CRUD: each box has a number, label, location, contents (one item per line), notes and last opened date. "Where is my X?" search and the "not opened for 12 months" filter. One shared inventory, no accounts. |
+| **Beta** | Demo before final | `v0.2.0` | Nested locations, separate item records, QR labels and scanning, accounts, private households shared with family or flatmates (`owner` / `member`), photos, box history, moving mode, label sheets, fuzzy search, admin dashboard and ban, security hardening. |
+
+> **MVP scope update (v1.1):** to keep the mid-term MVP small, the MVP stores a box's location as text and its contents as a list (one item per line). Nested locations (F-01), separate item records and moving items between boxes (F-03, F-04), and QR labels with scanning (F-05, F-06) move to Beta. The MVP keeps box CRUD, "where is my X?" search (F-07), the "not opened for 12 months" filter (F-08) and the box list (F-09).
 
 ```mermaid
 flowchart LR
@@ -94,7 +96,7 @@ A handwritten list taped to the box only works if you can reach the box. A notes
 
 | Release | In scope |
 |---|---|
-| **MVP** | Nested locations (room → cupboard → shelf); boxes with number, label, type, location and notes; items with name, quantity and notes; move boxes and items; QR code per box and a printable label; scanning the QR opens the box page; search items and box labels with the location path; "mark as opened" and the "not opened since" filter; one shared inventory with no accounts; Supabase PostgreSQL in production (SQLite locally); deployment on Vercel. |
+| **MVP** | Boxes with a unique number, label, location (text), contents (one item per line), notes and last opened date; create, list, view, edit, delete; "where is my X?" search across contents; "mark as opened today" and the "not opened for 12 months" filter; one shared inventory with no accounts; Supabase PostgreSQL in production (SQLite locally); deployment on Vercel. |
 | **Beta** | Sign up / login (JWT + refresh token); profile (change name and password); global roles `user` / `admin`; households with `owner` / `member` roles; photos of boxes and items; box history (created, opened, moved, edited); moving mode (packed, in transit, unpacked, destination); label sheets with several QR labels per page; fuzzy search that tolerates typos; admin dashboard with stats; ban / unban users; rate limiting, login lockout and other security hardening. |
 
 ### 6.2 Out of scope (this semester)
