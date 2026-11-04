@@ -4,9 +4,9 @@
 |---|---|
 | **Product** | BoxBrain |
 | **Document** | Software Requirements Specification (SRS) |
-| **Version** | 1.0 |
-| **Date** | October 2026 |
-| **Author** | Rifat |
+| **Version** | 1.1 |
+| **Date** | November 2026 |
+| **Author** | Zarin Tasnim (2311933) |
 | **Related docs** | [PRD](01-prd.md) · [TDD](03-tdd.md) |
 
 ---
@@ -135,7 +135,25 @@ stateDiagram-v2
 
 ## 3. Functional requirements
 
-### 3.1 MVP
+### 3.0 MVP as built (v0.1.0)
+
+To keep the mid-term MVP small, it uses one `box` table. The location is free text and the contents are a list with one item per line. FR-01 – FR-03 (location tree), FR-08 – FR-09 (separate item records and moving items) and FR-10 – FR-11 (QR labels and scanning) move to Beta. The requirements below are what the MVP implements.
+
+| ID | Requirement | Story |
+|---|---|---|
+| MVP-01 | A guest shall be able to create a box with `number` (1 to 99999, unique), `label`, `location`, `contents` (one item per line), optional `notes` and `last_opened_on`. The system returns `201`. | US-02, US-03 |
+| MVP-02 | A duplicate box number shall be rejected with `409` ("Box number 17 is already used"), on create and on update. | US-02 |
+| MVP-03 | A `last_opened_on` date in the future shall be rejected with `409`. | US-09 |
+| MVP-04 | The system shall list boxes ordered by number, with `offset` and `limit` (1 to 100, default 20), and return the `total`. | US-11 |
+| MVP-05 | The system shall return one box by its UUID, or `404` "Box not found". | US-05 |
+| MVP-06 | A guest shall be able to update a box; only the fields sent change, and `updated_at` is refreshed. | US-03, US-07 |
+| MVP-07 | "Mark as opened today" shall set `last_opened_on` to today through the update endpoint. | US-09 |
+| MVP-08 | A guest shall be able to delete a box (`204`, or `404` if it doesn't exist). | US-12 |
+| MVP-09 | The frontend shall search every loaded box's label, location and contents ("where is my X?") and show the matching items. | US-06 |
+| MVP-10 | The frontend shall flag boxes not opened for 12 months and filter the list to only those boxes. | US-10 |
+| MVP-11 | Invalid input shall return `422`; interactive API docs shall be served at `/api/docs`. | – |
+
+### 3.1 Planned functional requirements (MVP items marked above move to Beta)
 
 | ID | Requirement | Release | Story |
 |---|---|---|---|

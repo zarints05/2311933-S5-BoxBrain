@@ -4,9 +4,9 @@
 |---|---|
 | **Product** | BoxBrain |
 | **Document** | Technical Design Document (TDD) |
-| **Version** | 1.0 |
-| **Date** | October 2026 |
-| **Author** | Rifat |
+| **Version** | 1.1 |
+| **Date** | November 2026 |
+| **Author** | Zarin Tasnim (2311933) |
 | **Related docs** | [PRD](01-prd.md) · [SRS](02-srs.md) |
 
 ---
@@ -14,6 +14,56 @@
 ## 1. Overview
 
 This document explains how BoxBrain will be built: the stack, the architecture, the data model, QR codes and labels, search, the REST API and the security design. Requirement IDs (FR-xx, NFR-xx) refer to the [SRS](02-srs.md).
+
+## 1.1 MVP as built (v0.1.0)
+
+The MVP is a smaller version of the design below. It has one table, `box`, and five REST endpoints. Nested locations, separate item records, QR labels, search on the server and moving mode come later; the rest of this document describes that full design.
+
+**Backend layout** (organised by feature, like the class reference project):
+
+```
+backend/
+├── main.py                 # App entry: mounts the boxes router, maps errors to JSON, serves frontend/dist
+└── app/
+    ├── config.py           # Settings from env vars; Supabase URL in production, SQLite file locally
+    ├── database.py         # Engine, create_db_and_tables, per-request Session
+    └── boxes/
+        ├── models.py       # Box table
+        ├── schemas.py      # BoxCreate, BoxUpdate, BoxRead, BoxPage
+        ├── repository.py   # BoxRepository: every database query for boxes
+        ├── service.py      # BoxService: unique number, date check, updated_at
+        ├── dependencies.py # Builds session -> repository -> service; valid_box loads {box_id} or 404
+        └── router.py       # CRUD routes under /api/v1/boxes
+```
+
+**Frontend:** React + TypeScript + Vite with Ant Design and React Router. Pages: `HomePage` (stat cards, "where is my X?" search, 12-month filter, grid of box cards, "Add box" modal), `BoxDetailsPage` (view, edit, opened today, delete) and `AboutPage`. Components: `BoxForm`, `BoxGrid`, `BoxStats`. Every backend call is in `services/api.ts`.
+
+**`box` table:**
+
+| Column | Type | Rules |
+|---|---|---|
+| `id` | UUID, primary key | Generated in Python with `uuid4` |
+| `number` | integer, unique | 1 to 99999; duplicates return `409` |
+| `label` | text (200) | Required, trimmed |
+| `location` | text (200) | Required, trimmed |
+| `contents` | text (2000) | One item per line |
+| `notes` | text (1000), nullable | Optional |
+| `last_opened_on` | date | Not in the future (`409`) |
+| `created_at`, `updated_at` | timestamp with time zone (UTC) | Set by the app |
+
+**Endpoints:**
+
+| Method | Path | Operation | Success | Errors |
+|---|---|---|---|---|
+| `POST` | `/api/v1/boxes` | Create | `201` | `422`, `409` |
+| `GET` | `/api/v1/boxes?offset=0&limit=20` | Read list, by number, with `total` | `200` | `422` |
+| `GET` | `/api/v1/boxes/{box_id}` | Read single | `200` | `404` |
+| `PATCH` | `/api/v1/boxes/{box_id}` | Update only the fields sent | `200` | `404`, `409`, `422` |
+| `DELETE` | `/api/v1/boxes/{box_id}` | Delete | `204` | `404` |
+
+**Request flow:** page → `services/api.ts` → `/api/v1/boxes` (Vercel sends `/api/*` to the backend) → router validates the input → `BoxService` checks the rules → `BoxRepository` reads or writes the `box` table → `BoxRead` JSON back to the page.
+
+**Database:** `DATABASE_URL` (Supabase transaction pooler, port 6543) in production; a local `boxbrain.db` SQLite file otherwise. The table is created with `create_all` when the app starts.
 
 ## 2. Tech stack
 
