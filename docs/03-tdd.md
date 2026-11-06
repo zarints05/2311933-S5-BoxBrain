@@ -1,69 +1,19 @@
-# Technical Design Document (TDD): BoxBrain
+# Technical Design Document (TDD): LostSpot
 
 | | |
 |---|---|
-| **Product** | BoxBrain |
+| **Product** | LostSpot |
 | **Document** | Technical Design Document (TDD) |
-| **Version** | 1.1 |
-| **Date** | November 2026 |
-| **Author** | Zarin Tasnim (2311933) |
+| **Version** | 1.2 |
+| **Date** | 6 November 2026 |
+| **Author** | Rifat |
 | **Related docs** | [PRD](01-prd.md) · [SRS](02-srs.md) |
 
 ---
 
 ## 1. Overview
 
-This document explains how BoxBrain will be built: the stack, the architecture, the data model, QR codes and labels, search, the REST API and the security design. Requirement IDs (FR-xx, NFR-xx) refer to the [SRS](02-srs.md).
-
-## 1.1 MVP as built (v0.1.0)
-
-The MVP is a smaller version of the design below. It has one table, `box`, and five REST endpoints. Nested locations, separate item records, QR labels, search on the server and moving mode come later; the rest of this document describes that full design.
-
-**Backend layout** (organised by feature, like the class reference project):
-
-```
-backend/
-├── main.py                 # App entry: mounts the boxes router, maps errors to JSON, serves frontend/dist
-└── app/
-    ├── config.py           # Settings from env vars; Supabase URL in production, SQLite file locally
-    ├── database.py         # Engine, create_db_and_tables, per-request Session
-    └── boxes/
-        ├── models.py       # Box table
-        ├── schemas.py      # BoxCreate, BoxUpdate, BoxRead, BoxPage
-        ├── repository.py   # BoxRepository: every database query for boxes
-        ├── service.py      # BoxService: unique number, date check, updated_at
-        ├── dependencies.py # Builds session -> repository -> service; valid_box loads {box_id} or 404
-        └── router.py       # CRUD routes under /api/v1/boxes
-```
-
-**Frontend:** React + TypeScript + Vite with Ant Design and React Router. Pages: `HomePage` (stat cards, "where is my X?" search, 12-month filter, grid of box cards, "Add box" modal), `BoxDetailsPage` (view, edit, opened today, delete) and `AboutPage`. Components: `BoxForm`, `BoxGrid`, `BoxStats`. Every backend call is in `services/api.ts`.
-
-**`box` table:**
-
-| Column | Type | Rules |
-|---|---|---|
-| `id` | UUID, primary key | Generated in Python with `uuid4` |
-| `number` | integer, unique | 1 to 99999; duplicates return `409` |
-| `label` | text (200) | Required, trimmed |
-| `location` | text (200) | Required, trimmed |
-| `contents` | text (2000) | One item per line |
-| `notes` | text (1000), nullable | Optional |
-| `last_opened_on` | date | Not in the future (`409`) |
-| `created_at`, `updated_at` | timestamp with time zone (UTC) | Set by the app |
-
-**Endpoints:**
-
-| Method | Path | Operation | Success | Errors |
-|---|---|---|---|---|
-| `POST` | `/api/v1/boxes` | Create | `201` | `422`, `409` |
-| `GET` | `/api/v1/boxes?offset=0&limit=20` | Read list, by number, with `total` | `200` | `422` |
-| `GET` | `/api/v1/boxes/{box_id}` | Read single | `200` | `404` |
-| `PATCH` | `/api/v1/boxes/{box_id}` | Update only the fields sent | `200` | `404`, `409`, `422` |
-| `DELETE` | `/api/v1/boxes/{box_id}` | Delete | `204` | `404` |
-
-**Request flow:** page → `services/api.ts` → `/api/v1/boxes` (Vercel sends `/api/*` to the backend) → router validates the input → `BoxService` checks the rules → `BoxRepository` reads or writes the `box` table → `BoxRead` JSON back to the page.
-
-**Database:** `DATABASE_URL` (Supabase transaction pooler, port 6543) in production; a local `boxbrain.db` SQLite file otherwise. The table is created with `create_all` when the app starts.
+This document explains how LostSpot is built: the stack, the architecture, the data model, the REST API and the security design. Sections marked MVP describe what is built in `v0.1.0`; the floor map, matching logic and everything marked Beta come next. Requirement IDs (FR-xx, NFR-xx) refer to the [SRS](02-srs.md).
 
 ## 2. Tech stack
 
@@ -72,77 +22,71 @@ backend/
 | Backend | FastAPI (Python) | MVP | Fast to write, automatic OpenAPI docs, Pydantic validation |
 | ORM | SQLModel | MVP | One class for both the table and the schema |
 | Database | Supabase PostgreSQL (production), SQLite (local) | MVP | Free hosted Postgres; SQLite needs no setup locally |
-| QR codes | `segno` (Python) | MVP | Pure Python, no system libraries, outputs SVG that prints sharply at any size |
-| Frontend | React + Vite, React Router | MVP | Fast dev server; `/b/:token` route for QR links |
-| Printing | Browser print with CSS `@media print` | MVP | No PDF library needed; works on any computer |
+| Frontend | React + TypeScript + Vite | MVP | Fast dev server, typed API calls |
+| UI library | Bootstrap 5 with React-Bootstrap, plus my own CSS (sidebar layout, Poppins font, teal theme) | MVP | Ready-made forms, slide-in panel (Offcanvas), confirm dialog and alerts; widely taught |
+| Routing | React Router | MVP | One page per URL (`/` and `/items/:id`) |
+| Floor map | Leaflet (`react-leaflet`) with `CRS.Simple` and an image overlay | Beta | Treats a floor plan image as a flat map with zoom, pins and circles |
 | Hosting | Vercel (static frontend + Python serverless function for `/api/*`) | MVP | Free, deploys from GitHub |
 | Migrations | Alembic | Beta | Safe schema changes once real data exists |
 | Auth | PyJWT (access + refresh tokens) | Beta | Simple, stateless access tokens |
 | Password hashing | Argon2 (`argon2-cffi`) | Beta | Current recommended password hash |
-| File storage | Supabase Storage (private bucket, signed URLs) | Beta | Box and item photos stay private |
-| Fuzzy search | PostgreSQL `pg_trgm` extension | Beta | Typo-tolerant search inside the database |
+| File storage | Supabase Storage | Beta | Item photos and floor plan uploads |
 
 ## 3. Architecture
 
 ```mermaid
 flowchart LR
-    P["Phone camera"] -->|"scan QR: /b/token"| B["Browser: React app"]
-    B -->|"static files"| V["Vercel CDN"]
-    B -->|"/api/v1/*"| F["FastAPI on Vercel serverless"]
+    B["Browser: React + Bootstrap"] -->|"static files"| V["Vercel CDN"]
+    B -->|"/api/*"| F["FastAPI on Vercel serverless"]
     F -->|"SQLModel"| DB[("Supabase PostgreSQL")]
-    F -->|"Beta: photos"| S[("Supabase Storage, private")]
+    F -->|"Beta: photos, floor plans"| S[("Supabase Storage")]
+    B -->|"floor plan and photo URLs"| S
 ```
 
-Vercel serves the React build as static files. Every request to `/api/*` is routed by `vercel.json` to the FastAPI app, which runs as a serverless function and talks to Supabase PostgreSQL. A QR code is just a link to the React app (`/b/<qr_token>`), so the phone's normal camera opens it in the browser, and the React page then loads the box from the API.
+Vercel serves the React build as static files. Every request to `/api/*` is routed by `vercel.json` to the FastAPI app (`backend/main.py`), which runs as a serverless function. The app talks to Supabase PostgreSQL in production and to a SQLite file locally. In Beta, floor plan images and item photos live in Supabase Storage.
 
 ### 3.1 Request flow
 
-1. The browser calls an endpoint, for example `GET /api/v1/search?q=passport`.
-2. Vercel routes it to `api/index.py`.
-3. The FastAPI router validates query and body with Pydantic schemas (`422` on failure).
-4. Dependencies run: database session, and in Beta the current user and household membership checks.
-5. The router calls a service function, which reads or writes through SQLModel.
-6. The response is serialised through a response schema.
+1. A page calls a function in `frontend/src/api/items.ts`, for example `getItems("all", "")`, which sends `GET /api/items`.
+2. Vercel sends every `/api/*` request to the `backend` service (`backend/main.py`), as set in `vercel.json`. Locally, Vite forwards `/api` to `localhost:8000`.
+3. FastAPI checks the request against the schemas in `app/items/schemas.py` and answers `422` if something is wrong.
+4. For routes with an id in the URL, `get_item_or_404` (in `app/items/dependencies.py`) loads the item first, or answers `404`.
+5. The route in `app/items/router.py` calls a function in `app/items/service.py`, which checks the rules (the date can't be in the future, `400`).
+6. The service calls `app/items/repository.py`, the only file that runs database queries, on the `items` table.
+7. The item is sent back as JSON (`ItemResponse`). The page puts it into its state with `useState`, and React redraws the screen.
 
-### 3.2 Create a box and print its label (MVP)
-
-```mermaid
-sequenceDiagram
-    actor U as User
-    participant UI as React app
-    participant API as FastAPI
-    participant DB as PostgreSQL
-    U->>UI: Fill box form (label, type, location), add items
-    UI->>API: POST /api/v1/boxes
-    API->>API: Validate, pick next free number, generate qr_token
-    API->>DB: INSERT box (last_opened_at = now)
-    API-->>UI: 201 box (number 17, qr_token)
-    UI->>API: POST /api/v1/boxes/17/items (for each item)
-    API->>DB: INSERT item, UPDATE box.last_opened_at
-    U->>UI: Click "Print label"
-    UI->>API: GET /api/v1/boxes/17/qr.svg
-    API-->>UI: SVG encoding APP_BASE_URL/b/qr_token
-    UI-->>U: Print preview: QR + "BOX 17" + label
-```
-
-### 3.3 Scan a QR code (MVP)
+### 3.2 Create, update and delete an item (MVP)
 
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant C as Phone camera
-    participant UI as React app
-    participant API as FastAPI
-    participant DB as PostgreSQL
-    U->>C: Point camera at box label
-    C->>UI: Open APP_BASE_URL/b/qr_token
-    UI->>API: GET /api/v1/boxes/by-qr/qr_token
-    API->>DB: SELECT box, items, location chain
-    API-->>UI: 200 box with items and location path
-    UI-->>U: Box page: contents, location, "Mark as opened"
+    participant UI as React page
+    participant API as router.py
+    participant S as service.py
+    participant R as repository.py
+    participant DB as Database
+    U->>UI: Click "I lost something", fill the form, Post it
+    UI->>API: POST /api/items
+    API->>API: Check the body with ItemCreate (422 if wrong)
+    API->>S: add_item(db, data)
+    S->>S: check_date (400 if in the future)
+    S->>R: save_item(db, item)
+    R->>DB: INSERT INTO items
+    API-->>UI: 201 + the new item
+    U->>UI: Open the item, click "Mark as returned"
+    UI->>API: PUT /api/items/5 (whole item, is_returned = true)
+    API->>S: edit_item(db, item, data)
+    S->>R: save_item(db, item)
+    R->>DB: UPDATE items
+    API-->>UI: 200 + the updated item
+    U->>UI: Delete, then "Yes, delete"
+    UI->>API: DELETE /api/items/5
+    API->>R: remove_item(db, item)
+    R->>DB: DELETE FROM items
+    API-->>UI: 200 {"message": "Item 5 deleted"}
 ```
 
-### 3.4 Login and refresh (Beta)
+### 3.3 Login and refresh (Beta)
 
 ```mermaid
 sequenceDiagram
@@ -151,128 +95,153 @@ sequenceDiagram
     participant API as FastAPI
     participant DB as PostgreSQL
     U->>UI: Email + password
-    UI->>API: POST /api/v1/auth/login
+    UI->>API: POST /api/auth/login
     API->>DB: Find user, check ban and lockout
     API->>API: Verify Argon2 hash
     API->>DB: Save refresh token hash
     API-->>UI: access_token (15 min) + refresh_token (7 days)
     Note over UI,API: Later, access token expires
-    UI->>API: POST /api/v1/auth/refresh
+    UI->>API: POST /api/auth/refresh
     API->>DB: Check hash, not revoked, not expired, user not banned
     API->>DB: Revoke old, save new refresh token hash
     API-->>UI: New token pair
 ```
 
-### 3.5 Scan a QR code with households (Beta)
+### 3.4 Claim a found item (Beta)
 
 ```mermaid
 sequenceDiagram
-    actor U as User
-    participant UI as React app
+    actor C as Claimant
+    actor F as Finder
     participant API as FastAPI
     participant DB as PostgreSQL
-    U->>UI: Open /b/qr_token from camera
-    alt Not logged in
-        UI-->>U: Login page, then return to /b/qr_token
-    end
-    UI->>API: GET /api/v1/boxes/by-qr/qr_token (Bearer token)
-    API->>DB: Find box, check user is a member of box.household_id
-    alt Member
-        API-->>UI: 200 box
-    else Not a member or unknown token
-        API-->>UI: 404 box not found
-    end
+    C->>API: POST /api/items/{id}/claims (answer, message)
+    API->>DB: Check item is found and open, claimant is not finder, no earlier claim
+    API->>DB: INSERT claim (pending)
+    F->>API: GET /api/items/{id}/claims
+    API-->>F: Claims with answers + expected secret answer
+    F->>API: POST /api/claims/{claim_id}/approve
+    API->>DB: Claim approved, other pending claims rejected, item claimed
+    C->>API: GET /api/items/{id}
+    API-->>C: Item with finder contact and handoff note
 ```
 
 ## 4. Project structure
 
 ```
-boxbrain/
-├── api/
-│   ├── index.py              # FastAPI app, mounts routers under /api/v1, docs at /api/docs
-│   ├── core/
-│   │   ├── config.py         # Settings read from environment variables
-│   │   ├── db.py             # Engine and session dependency
-│   │   └── security.py       # Beta: JWT, Argon2, membership and role checks
-│   ├── models/               # SQLModel tables: location, box, item, user, refresh_token, household, member, box_event
-│   ├── schemas/              # Request and response models
-│   ├── routers/              # locations, boxes, items, search, auth, users, households, admin
-│   └── services/             # locations (paths, cycle check), boxes, search, qr, events, stats
+lostspot/
+├── backend/
+│   ├── main.py                 # Creates the FastAPI app, adds the item routes, creates the tables
+│   ├── requirements.txt
+│   └── app/
+│       ├── config.py           # Picks the database: DATABASE_URL (Supabase) or a local SQLite file
+│       ├── database.py         # The engine, create_tables() and get_db() (one session per request)
+│       └── items/
+│           ├── models.py       # The `items` table
+│           ├── schemas.py      # ItemCreate, ItemUpdate, ItemResponse (what the API accepts and returns)
+│           ├── repository.py   # Database queries: find_items, find_item_by_id, save_item, remove_item
+│           ├── service.py      # Rules: check_date, add_item, edit_item, delete_item
+│           ├── dependencies.py # get_item_or_404: loads the item for routes with {item_id}
+│           └── router.py       # The five routes under /api/items
 ├── frontend/
 │   └── src/
-│       ├── api/              # fetch helpers
-│       ├── components/       # BoxCard, ItemList, LocationTree, LocationPicker, QrLabel, SearchBar
-│       └── pages/            # Home, BoxPage, ScanPage (/b/:token), Search, Locations, Stale, Label,
-│                             # (Beta) Login, Profile, Households, Moving, LabelSheet, Admin
-├── scripts/seed.py           # Sample locations, boxes and items
-├── alembic/                  # Beta migrations
-├── docs/                     # PRD, SRS, TDD
-├── requirements.txt
-└── vercel.json
+│       ├── main.tsx            # Starts React, loads Bootstrap's CSS, turns on the router
+│       ├── App.tsx             # Picks the page for the URL
+│       ├── api/items.ts        # One function per API call (getItems, getItem, createItem, updateItem, deleteItem)
+│       ├── types.ts            # Item and ItemFormData types
+│       ├── utils.ts            # Dates and form helpers
+│       ├── components/         # Sidebar, ItemRow, ItemFormDrawer (slide-in form)
+│       └── pages/              # HomePage (list, filters, search), ItemPage (details, edit, returned, delete)
+├── docs/                       # PRD, SRS, TDD
+└── vercel.json                 # /api/* -> backend, everything else -> frontend
 ```
 
 ## 5. Data model
 
-### 5.1 ERD
+### 5.0 MVP: the `items` table (built in `v0.1.0`)
+
+The MVP has one table and no relationships yet.
 
 ```mermaid
 erDiagram
-    HOUSEHOLD ||--o{ LOCATION : has
-    HOUSEHOLD ||--o{ BOX : has
-    HOUSEHOLD ||--o{ HOUSEHOLD_MEMBER : has
-    APP_USER ||--o{ HOUSEHOLD_MEMBER : joins
-    APP_USER ||--o{ REFRESH_TOKEN : has
-    LOCATION ||--o{ LOCATION : contains
-    LOCATION ||--o{ BOX : holds
-    BOX ||--o{ ITEM : contains
-    BOX ||--o{ BOX_EVENT : logs
-    APP_USER ||--o{ BOX_EVENT : causes
-
-    LOCATION {
+    ITEMS {
         int id PK
-        int household_id FK
-        int parent_id FK
-        string name
+        string kind
+        string item_name
+        string description
+        string location
+        date date_happened
+        string contact
+        bool is_returned
         datetime created_at
         datetime updated_at
     }
-    BOX {
+```
+
+| Column | Type | Rules |
+|---|---|---|
+| `id` | integer, primary key | The database numbers rows automatically: 1, 2, 3... |
+| `kind` | text (5) | `lost` or `found` |
+| `item_name` | text (100) | Required, spaces trimmed |
+| `description` | text (500), can be empty | Optional |
+| `location` | text (150) | Required, e.g. "CSE Building, Floor 2, near Lab 1" |
+| `date_happened` | date | The day it was lost or found; not in the future |
+| `contact` | text (100), can be empty | Optional, shown publicly |
+| `is_returned` | true / false | `false` when created |
+| `created_at`, `updated_at` | date and time (UTC) | Set by the backend; `updated_at` changes on every update |
+
+### 5.1 Beta ERD
+
+In Beta the free-text `location` is joined by a place on a floor plan, and items get owners and claims:
+
+```mermaid
+erDiagram
+    BUILDING ||--o{ FLOOR : has
+    FLOOR ||--o{ ITEM : contains
+    APP_USER ||--o{ ITEM : posts
+    APP_USER ||--o{ REFRESH_TOKEN : has
+    APP_USER ||--o{ CLAIM : makes
+    ITEM ||--o{ CLAIM : receives
+
+    BUILDING {
         int id PK
-        int household_id FK
-        int number
-        string label
-        string type
-        int location_id FK
-        string notes
-        string qr_token
-        datetime last_opened_at
-        string photo_path
-        string move_status
-        int destination_location_id FK
+        string name
+        string code
         datetime created_at
-        datetime updated_at
+    }
+    FLOOR {
+        int id PK
+        int building_id FK
+        int level
+        string label
+        string plan_image_url
+        int plan_width
+        int plan_height
     }
     ITEM {
         int id PK
-        int box_id FK
-        string name
-        int quantity
-        string notes
-        string photo_path
+        string type
+        string title
+        string description
+        string category
+        int floor_id FK
+        float x
+        float y
+        float radius
+        datetime time_from
+        datetime time_to
+        string handoff_note
+        string contact
+        string status
+        string found_note
+        datetime found_reported_at
+        int owner_id FK
+        string photo_url
+        string verification_question
+        string secret_answer
         datetime created_at
         datetime updated_at
-    }
-    HOUSEHOLD {
-        int id PK
-        string name
-        int owner_id FK
-        datetime created_at
-    }
-    HOUSEHOLD_MEMBER {
-        int household_id PK
-        int user_id PK
-        string role
-        datetime joined_at
+        datetime resolved_at
     }
     APP_USER {
         int id PK
@@ -292,189 +261,154 @@ erDiagram
         datetime expires_at
         datetime revoked_at
     }
-    BOX_EVENT {
+    CLAIM {
         int id PK
-        int box_id FK
-        int user_id FK
-        string type
-        string details
+        int item_id FK
+        int claimant_id FK
+        string answer
+        string message
+        string status
         datetime created_at
     }
 ```
 
 ### 5.2 Tables
 
-**MVP**
+**Beta (floor maps)**
 
-- `location`: a tree through `parent_id` (null for top-level locations). Unique on `(parent_id, lower(name))`.
-- `box`: `number` is unique, `qr_token` is unique and indexed. `last_opened_at` starts at the creation time. Indexes on `location_id` and `last_opened_at`.
-- `item`: belongs to one box and is deleted with it (`ON DELETE CASCADE`). Index on `box_id`, and on `lower(name)` for search.
+- `building`: campus buildings. `code` is short and unique (for example `CSE`).
+- `floor`: one row per floor. `plan_width` and `plan_height` are the image size in pixels, used to convert relative coordinates.
+- `item`: lost and found posts. `radius` and `time_to` are set only for lost items; `handoff_note` only for found items. `found_note` and `found_reported_at` are filled by a found report. Indexes on `(floor_id, status)`, `(category, status)` and `created_at`. `is_returned` becomes the `status` column.
 
-**Beta additions**
+**Beta (accounts and claims)**
 
-- `household`, `household_member` (`role` is `owner` or `member`), `app_user` (`role` is `user` or `admin`), `refresh_token` (stores only a SHA-256 hash), `box_event`.
-- `location.household_id` and `box.household_id`. Box `number` becomes unique per household: `UNIQUE (household_id, number)`. Items get their household through their box.
-- `box.photo_path`, `item.photo_path`: paths inside the private storage bucket, not public URLs.
-- `box.move_status` (default `none`) and `box.destination_location_id`.
-- When Beta is released, the MVP demo data is moved into a "Demo" household owned by an admin account.
+- `item.owner_id`, `item.photo_url`, `item.verification_question`, `item.secret_answer`. 
+- `app_user`: `role` is `user` or `admin`. `email` is unique and stored in lowercase.
+- `refresh_token`: stores only a SHA-256 hash of each refresh token.
+- `claim`: `status` is `pending`, `approved` or `rejected`. Unique on `(item_id, claimant_id)`.
 
-## 6. Locations and paths
+Match suggestions are calculated on request, so there is no match table.
 
-- Locations form a tree, at most 5 levels deep (FR-01).
-- **Path:** a household has at most a few hundred locations, so the service loads all of them once per request into a dictionary `{id: (name, parent_id)}` and walks up the parents to build each path. This is simpler than a recursive SQL query and fast enough.
-- **Cycle check (FR-02):** before moving location `A` under `P`, walk up from `P`. If `A` appears, the move is rejected with `400`. The new depth is also checked against the limit.
-- **Box count per location** includes boxes in sub-locations when `include_sublocations=true`, found by collecting all descendant IDs from the same dictionary.
+## 6. Floor map design (Beta)
 
-## 7. QR codes and labels
+- Each floor has one plan image. The map uses Leaflet's `CRS.Simple`, with the image placed as an `ImageOverlay` covering bounds `[[0, 0], [plan_height, plan_width]]`.
+- Positions are stored **relative to the image**: `x` and `y` from 0 to 1 (`x` from the left, `y` from the top). The frontend converts them to map coordinates with `lat = (1 - y) * plan_height` and `lng = x * plan_width`. Because they are relative, replacing an image with a higher-resolution version doesn't break existing pins.
+- `radius` is relative to `plan_width` (0.1 means a circle whose radius is 10% of the image width).
+- Found items are drawn as pins with a category icon. Lost items are drawn as semi-transparent circles. Clicking either opens a small card with a link to the item page.
+- To post, the user taps the map: for a found item this places the pin; for a lost item it places the centre, and a slider sets the radius.
+- MVP floor plans are simple images drawn by the team (for example one PNG per floor of the CS building), stored in `frontend/public/floors/`.
 
-- Each box gets `qr_token = secrets.token_urlsafe(9)`, which is 12 URL-safe characters and 72 random bits (NFR-06).
-- The QR code encodes `APP_BASE_URL/b/<qr_token>`. It points to the **box**, not its location, so moving a box never needs a new label.
-- `GET /api/v1/boxes/{id}/qr.svg` creates the code with `segno` (error correction level M so a slightly scratched label still scans) and returns `image/svg+xml`.
-- **Single label (MVP):** a React page lays out the QR code, the box number in large text (`BOX 17`) and the label, sized for about 5 × 3 cm, and calls `window.print()`.
-- **Label sheet (Beta):** a React page takes several box IDs and lays out a 3 × 7 grid per A4 page (21 labels, 63.5 × 38.1 mm each, a common sticker sheet size) using CSS `@page` and `break-after: page`.
-- If the QR is damaged, the large printed number still identifies the box (NFR-05), and the user can find it in the box list.
+## 7. Matching logic (Beta)
 
-## 8. Search design
+For a lost item `L`, a found item `F` is a match when all of these hold:
 
-**MVP (FR-12)**
+1. `F.type = found`, `F.status = open`, `F.floor_id = L.floor_id`, `F.category = L.category`.
+2. `L.time_from ≤ F.time_from ≤ L.time_to + 48 hours`.
+3. The pin is inside the lost area, using pixel distance so that non-square images work:
 
-1. Lowercase the query `q`.
-2. One SQL query joins `item → box` and matches `lower(item.name)`, `lower(item.notes)`, `lower(box.label)` and `lower(box.notes)` with `LIKE '%q%'`.
-3. Results are ranked: exact item name match first, then name starts with `q`, then name contains `q`, then matches in notes or box label.
-4. Each result gets its location path from the location dictionary (section 6).
-5. At most 50 results are returned.
+```
+dx = (F.x - L.x) * plan_width
+dy = (F.y - L.y) * plan_height
+distance = sqrt(dx² + dy²)
+match if distance ≤ L.radius * plan_width
+```
 
-Example response:
+Steps 1 and 2 run as a SQL filter. Step 3 runs in Python on the (small) filtered list. Results are sorted by distance and limited to 10. The same function run the other way gives "lost items that may belong to this found item".
+
+## 8. REST API
+
+All endpoints are under `/api`. OpenAPI docs are at `/api/docs` (not `/docs`, because `vercel.json` sends only `/api/*` to the backend). Errors use FastAPI's default shape `{"detail": "..."}`.
+
+### 8.1 MVP endpoints
+
+There are no accounts in the MVP, so anyone can call these.
+
+| Method | Path | What it does | Success | Errors |
+|---|---|---|---|---|
+| `GET` | `/api/items` | **Read list**, newest first. Optional `?kind=lost` or `found`, and `?search=word` | `200` + list of items | `422` bad `kind` |
+| `POST` | `/api/items` | **Create** an item | `201` + the item | `422` invalid input, `400` date in the future |
+| `GET` | `/api/items/{id}` | **Read one** item | `200` + the item | `404` "No item with id N" |
+| `PUT` | `/api/items/{id}` | **Update**: send the whole item, including `is_returned` | `200` + the item | `404`, `422`, `400` |
+| `DELETE` | `/api/items/{id}` | **Delete** an item | `200` + `{"message": "Item N deleted"}` | `404` |
+| `GET` | `/api/health` | Check the backend is running | `200` | |
+
+Create example:
 
 ```json
-GET /api/v1/search?q=passport
+POST /api/items
 {
-  "results": [
-    {
-      "item": { "id": 88, "name": "Passport", "quantity": 1 },
-      "box": { "id": 4, "number": 4, "label": "Documents" },
-      "location_path": ["Bedroom", "Cupboard", "Top shelf"]
-    }
-  ]
+  "kind": "lost",
+  "item_name": "Black car key",
+  "location": "CSE Building, Floor 2, near Lab 1",
+  "date_happened": "2026-11-06",
+  "description": "Toyota key with a red keychain",
+  "contact": "2311188@iub.edu.bd"
 }
 ```
 
-**Beta (FR-33)**
-
-- Enable `pg_trgm` in Supabase and add a GIN trigram index on `item.name`.
-- After the steps above, add items where `similarity(item.name, q) > 0.3` that weren't already matched, ranked below the others by similarity.
-- On SQLite (local development) the fuzzy step is skipped, so search still works with exact and partial matches.
-
-## 9. "Not opened since" logic
-
-- `box.last_opened_at` is set to now when:
-  - the box is created,
-  - the user presses "Mark as opened" (`POST /boxes/{id}/opened`),
-  - an item in the box is added, edited, removed, or moved in or out (you have to open the box to do that).
-- Moving the whole box to another location doesn't change it.
-- `GET /boxes?not_opened_since=2025-10-13` returns boxes with `last_opened_at < 2025-10-13`, oldest first. The UI turns "12 months" into that date.
-
-## 10. Moving mode (Beta)
-
-- `PATCH /boxes/{id}/move-status` with `{"move_status": "unpacked", "destination_location_id": 12, "apply_destination": true}`.
-- With `apply_destination = true`, the box's `location_id` is set to the destination in the same transaction, and a `moved` event is recorded.
-- Allowed transitions follow the state diagram in the SRS; anything else returns `409`.
-- `GET /households/{id}/moving-summary` returns counts per status, for example `{"packed": 7, "in_transit": 0, "unpacked": 5}`.
-
-## 11. REST API
-
-All endpoints are under `/api/v1`. OpenAPI docs are at `/api/docs` (not `/docs`, because `vercel.json` sends only `/api/*` to the backend). Errors use FastAPI's default shape `{"detail": "..."}`.
-
-### 11.1 MVP endpoints
-
-In the MVP every endpoint can be called by anyone, since there are no accounts.
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `GET` | `/locations` | All locations with parent, path and box count |
-| `POST` | `/locations` | Create location |
-| `GET` | `/locations/{id}` | Location with its sub-locations and boxes |
-| `PATCH` | `/locations/{id}` | Rename or move under another parent |
-| `DELETE` | `/locations/{id}` | Delete an empty location |
-| `GET` | `/boxes` | List boxes. Query: `location_id`, `include_sublocations`, `type`, `q`, `not_opened_since`, `sort` (`number`, `label`, `last_opened_at`), `limit` (default 50, max 100), `offset` |
-| `POST` | `/boxes` | Create box (number optional) |
-| `GET` | `/boxes/{id}` | Box with items and location path |
-| `PATCH` | `/boxes/{id}` | Edit box or move it (`location_id`) |
-| `DELETE` | `/boxes/{id}` | Delete box and its items |
-| `GET` | `/boxes/by-qr/{qr_token}` | Box for a scanned QR code |
-| `GET` | `/boxes/{id}/qr.svg` | QR code image |
-| `POST` | `/boxes/{id}/opened` | Mark as opened |
-| `POST` | `/boxes/{id}/items` | Add item |
-| `PATCH` | `/items/{id}` | Edit item or move it (`box_id`) |
-| `DELETE` | `/items/{id}` | Remove item |
-| `GET` | `/search` | "Where is my X?" Query: `q` |
-
-Example create request:
-
-```json
-POST /api/v1/boxes
-{
-  "label": "Winter clothes",
-  "type": "cardboard_box",
-  "location_id": 3,
-  "notes": "Bottom of the pile"
-}
-```
-
-Response `201`:
+Answer `201`:
 
 ```json
 {
-  "id": 17,
-  "number": 17,
-  "label": "Winter clothes",
-  "type": "cardboard_box",
-  "location_id": 3,
-  "location_path": ["Storage room"],
-  "qr_token": "q8Zr2LkPw0aT",
-  "last_opened_at": "2026-10-13T20:15:00+06:00",
-  "items": []
+  "id": 5,
+  "kind": "lost",
+  "item_name": "Black car key",
+  "description": "Toyota key with a red keychain",
+  "location": "CSE Building, Floor 2, near Lab 1",
+  "date_happened": "2026-11-06",
+  "contact": "2311188@iub.edu.bd",
+  "is_returned": false,
+  "created_at": "2026-11-06T07:17:59.561502Z",
+  "updated_at": "2026-11-06T07:17:59.561502Z"
 }
 ```
 
-### 11.2 Beta endpoints
+Update uses `PUT`, so the frontend sends every field (it already has them all in the edit form). To mark the item returned, it sends the same item with `"is_returned": true`.
 
-From Beta on, every location, box, item and search endpoint above requires login and checks household membership. `GET /locations`, `GET /boxes` and `GET /search` take a `household_id` query parameter, and `POST /locations` and `POST /boxes` take `household_id` in the body. Deleting boxes and locations becomes owner-only.
+### 8.2 Beta endpoints
+
+From Beta on, item endpoints need a logged-in user. "Owner" means the user who created that item.
 
 | Method | Path | Who can call | Description |
 |---|---|---|---|
-| `POST` | `/auth/register` | Guest | Create account and personal household |
+| `POST` | `/auth/register` | Guest | Create account (allowed email domains only) |
 | `POST` | `/auth/login` | Guest | Get access and refresh tokens |
 | `POST` | `/auth/refresh` | Holder of refresh token | Rotate tokens |
 | `POST` | `/auth/logout` | User | Revoke refresh token |
 | `GET` | `/users/me` | User | Own profile |
 | `PATCH` | `/users/me` | User | Change name |
 | `POST` | `/users/me/password` | User | Change password |
-| `GET` | `/households` | User | Households I belong to, with my role |
-| `POST` | `/households` | User | Create household (caller becomes owner) |
-| `GET` | `/households/{id}` | Member, owner | Household details |
-| `PATCH` | `/households/{id}` | Owner | Rename |
-| `DELETE` | `/households/{id}` | Owner | Delete household and all its data |
-| `GET` | `/households/{id}/members` | Member, owner | List members |
-| `POST` | `/households/{id}/members` | Owner | Add member by email |
-| `DELETE` | `/households/{id}/members/{user_id}` | Owner (remove), member (leave themselves) | Remove member or leave |
-| `GET` | `/households/{id}/moving-summary` | Member, owner | Box counts per move status |
-| `DELETE` | `/boxes/{id}` | Owner | Delete box (owner-only from Beta) |
-| `DELETE` | `/locations/{id}` | Owner | Delete location (owner-only from Beta) |
-| `POST` | `/boxes/{id}/photo` | Member, owner | Upload box photo (multipart) |
-| `POST` | `/items/{id}/photo` | Member, owner | Upload item photo (multipart) |
-| `GET` | `/boxes/{id}/events` | Member, owner | Box history |
-| `PATCH` | `/boxes/{id}/move-status` | Member, owner | Set move status and destination |
-| `GET` | `/boxes/labels` | Member, owner | Label data for several boxes. Query: `ids` |
-| `GET` | `/admin/stats` | Admin | Service stats |
+| `GET` | `/users/me/items` | User | Own items |
+| `POST` | `/items` | User | Create item (optional `verification_question`, `secret_answer` for found items) |
+| `PATCH` | `/items/{id}` | Owner, admin | Update item |
+| `DELETE` | `/items/{id}` | Owner, admin | Delete item |
+| `POST` | `/items/{id}/resolve` | Owner, admin | Mark resolved |
+| `POST` | `/items/{id}/reopen` | Owner, admin | Back to `open` |
+| `POST` | `/items/{id}/found-report` | User (not owner) | Report lost item as found |
+| `POST` | `/items/{id}/photo` | Owner, admin | Upload photo (multipart) |
+| `GET` | `/items/{id}/matches` | Owner, admin | Match suggestions |
+| `POST` | `/items/{id}/claims` | User (not owner) | Claim a found item |
+| `GET` | `/items/{id}/claims` | Owner, admin | List claims with answers |
+| `POST` | `/claims/{id}/approve` | Item owner, admin | Approve claim |
+| `POST` | `/claims/{id}/reject` | Item owner, admin | Reject claim |
+| `GET` | `/admin/stats` | Admin | Dashboard stats |
+| `DELETE` | `/admin/items/{id}` | Admin | Remove item (status `removed`) |
 | `GET` | `/admin/users` | Admin | List users |
 | `POST` | `/admin/users/{id}/ban` | Admin | Ban user and revoke their refresh tokens |
 | `POST` | `/admin/users/{id}/unban` | Admin | Unban user |
+| `POST` | `/admin/buildings` | Admin | Create building |
+| `POST` | `/admin/buildings/{id}/floors` | Admin | Add floor with plan image |
 
-## 12. Security design
+## 9. Security design
 
-### 12.1 Authentication (Beta)
+### 9.1 MVP
+
+- No accounts yet: anyone can create, edit and delete items. This is accepted for the mid-term demo; Beta adds login and ownership checks.
+- Every request body is checked by the schemas before any of our code runs (`422`).
+- Update and delete first load the item with `get_item_or_404`, so a missing id always gives a clean `404`.
+- The database URL comes from an environment variable and is never committed.
+
+### 9.2 Authentication (Beta)
 
 - Passwords hashed with Argon2id (`argon2-cffi` defaults).
 - Access token: JWT signed with HS256 using `JWT_SECRET`, claims `sub` (user id), `role`, `exp` (15 minutes). Sent as `Authorization: Bearer <token>`.
@@ -482,94 +416,90 @@ From Beta on, every location, box, item and search endpoint above requires login
 - Login lockout: `failed_logins` increases on each wrong password. At 5, `locked_until = now + 15 min` and login returns `429`. A successful login resets the counter.
 - Changing a password or being banned revokes all refresh tokens.
 
-### 12.2 Authorisation (Beta)
+### 9.3 Authorisation (Beta)
 
 FastAPI dependencies keep the checks in one place:
 
 - `get_current_user`: decodes the JWT, loads the user, rejects banned users with `403`.
-- `get_membership(household_id)`: returns the user's role in that household, or raises `404` if they aren't a member (NFR-17).
-- `get_box(box_id)`, `get_item(item_id)`, `get_location(location_id)`: load the record, then check membership of its household. Unknown and foreign records both return `404`.
-- `require_owner`: `403` unless the membership role is `owner`.
-- `require_admin`: `403` unless the global role is `admin`. Admin endpoints never return box or item data.
+- `get_optional_user`: same, but returns `None` for guests (used to hide contact details).
+- `require_admin`: `403` unless `role = admin`.
+- `get_owned_item`: loads the item and allows only its owner or an admin.
 
-### 12.3 QR links
+### 9.4 Claim verification (Beta)
 
-- In the MVP, the QR token is the only thing needed to open a box page. That is fine because the MVP holds demo data only (NFR-10).
-- In Beta, the token only identifies the box. The user must also be logged in and a member of the box's household, so a lost or photographed label doesn't expose anything.
+The secret answer is stored as plain text because the finder has to compare it with free-text answers by eye ("red keychain" vs "it has a red key ring"). It is never included in responses except to the finder and admins. Each user can claim an item only once, and claims are rate limited (NFR-14), so guessing is not practical.
 
-### 12.4 Photos (Beta)
-
-- Upload checks the content type and size (2 MB), renames the file to `households/<id>/<random>.<ext>` and stores it in a **private** Supabase Storage bucket.
-- The API returns a signed URL that expires after 1 hour whenever it returns a box or item with a photo (NFR-18).
-
-### 12.5 Other measures
+### 9.5 Other measures
 
 - Pydantic validation on every input (SRS section 5).
+- Response schemas leave out `secret_answer` and, for guests in Beta, `contact`.
 - CORS limited to `FRONTEND_ORIGIN` (Beta).
 - Security headers added by a small middleware (Beta).
-- Rate limiting with a simple counter table per user and hour, since serverless functions don't share memory (Beta).
+- Rate limiting with a simple per-user / per-IP counter table, since serverless functions don't share memory (Beta).
+- Photo uploads: check content type and size (2 MB), rename to a random file name, store in a public-read bucket.
 
-## 13. Admin stats (Beta)
+## 10. Admin dashboard stats (Beta)
 
-`GET /api/v1/admin/stats` returns only counts, never contents:
+`GET /api/admin/stats` returns:
 
 ```json
 {
-  "users": { "total": 48, "banned": 1, "new_last_7_days": 6 },
-  "households": 41,
-  "boxes": 615,
-  "items": 4210,
-  "boxes_created_per_week": [ { "week": "2026-W40", "count": 52 } ]
+  "items_by_type_status": { "lost": { "open": 12, "found_reported": 3, "resolved": 20 }, "found": { "open": 8, "claimed": 2, "resolved": 15 } },
+  "resolution_rate": 0.58,
+  "items_per_building": [ { "building": "CSE", "count": 41 } ],
+  "items_last_7_days": 9,
+  "avg_hours_to_resolve": 19.5,
+  "users": { "total": 64, "banned": 1 }
 }
 ```
 
-## 14. Configuration
+Each number comes from one `GROUP BY` query. With a few thousand rows this is fast enough without caching.
+
+## 11. Configuration
 
 | Variable | Release | Description |
 |---|---|---|
-| `DATABASE_URL` | MVP | Supabase Postgres URL in production, `sqlite:///./boxbrain.db` locally |
-| `APP_BASE_URL` | MVP | Public URL of the app, used inside QR codes (for example `https://boxbrain.vercel.app`) |
-| `FRONTEND_ORIGIN` | MVP | Frontend URL, used for CORS |
+| `DATABASE_URL` | MVP | Supabase transaction pooler URL in production. Unset locally, which uses `backend/lostspot.db` (SQLite). |
+| `POSTGRES_URL` | MVP | Added by Vercel's Supabase integration; used when `DATABASE_URL` is unset |
+| `FRONTEND_ORIGIN` | Beta | Frontend URL, used for CORS |
 | `JWT_SECRET` | Beta | Long random secret for signing tokens |
 | `ACCESS_TOKEN_MINUTES` | Beta | Default `15` |
 | `REFRESH_TOKEN_DAYS` | Beta | Default `7` |
+| `ALLOWED_EMAIL_DOMAINS` | Beta | Comma-separated list of university email domains |
 | `SUPABASE_URL` | Beta | Project URL for Storage |
-| `SUPABASE_SERVICE_KEY` | Beta | Server-only key for uploads and signed URLs |
-| `STORAGE_BUCKET` | Beta | Private bucket for photos |
+| `SUPABASE_SERVICE_KEY` | Beta | Server-only key for uploads |
+| `STORAGE_BUCKET` | Beta | Bucket name for photos and floor plans |
 
 Secrets go in a local `.env` file (listed in `.gitignore`) and in Vercel's project environment variables. They are never committed.
 
-`APP_BASE_URL` must be the final production URL before any labels are printed, because it is baked into every QR code.
-
-## 15. Supabase setup
+## 12. Supabase setup
 
 1. Create a Supabase project and copy the connection string from **Connect**.
 2. Use the **transaction pooler** connection string (port 6543) for `DATABASE_URL`, because serverless functions open many short connections.
-3. In `core/db.py`, create the engine with `poolclass=NullPool` so connections aren't kept between invocations.
-4. Beta: enable the `pg_trgm` extension, and create a **private** Storage bucket named in `STORAGE_BUCKET`.
+3. `app/database.py` creates the engine with `poolclass=NullPool` and `prepare_threshold=None`, because the pooler already pools connections and rejects prepared statements. `app/config.py` turns `postgres://` URLs into `postgresql+psycopg://` and drops the `supa` and `pgbouncer` parameters that psycopg rejects.
+4. Beta: create a Storage bucket named in `STORAGE_BUCKET` with public read access.
 
-## 16. Migrations
+## 13. Migrations
 
-- **MVP:** tables are created with `SQLModel.metadata.create_all()` when the seed script runs. This is fine while there is only demo data.
-- **Beta:** Alembic is added. The first migration matches the MVP schema. The second adds users, households, members, refresh tokens and box events, adds `household_id` to locations and boxes, moves existing demo data into a "Demo" household, and then makes `household_id` required. Migrations are run by hand against Supabase before each deploy.
+- **MVP:** the `items` table is created by `create_tables()` (which calls `SQLModel.metadata.create_all()`) when the app starts in `main.py`. Existing tables and data are kept. This is fine while there is only one table.
+- **Beta:** Alembic is added. The first migration matches the MVP schema; the second adds `app_user`, `refresh_token`, `claim` and the new `item` columns. Migrations are run by hand against Supabase before each deploy.
 
-## 17. Deployment
+## 14. Deployment
 
 1. Push to GitHub; Vercel builds a preview for every pull request.
-2. `vercel.json` routes `/api/(.*)` to `api/index.py` and everything else to the React build, with a fallback to `index.html` so `/b/<token>` works on a fresh page load.
+2. `vercel.json` routes `/api/(.*)` to the `backend` service (`backend/main.py`) and everything else to the `frontend` service, which falls back to `index.html` so pages like `/items/{id}` work on reload.
 3. Environment variables are set in the Vercel dashboard for Preview and Production.
 4. Merging into `main` deploys to production. MVP is tagged `v0.1.0`, Beta `v0.2.0`.
 
-## 18. Risks
+## 15. Risks
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Inventory gets out of date because people don't update it | Search gives wrong answers | Quick add / remove right on the QR box page; item changes update "opened" automatically |
-| QR label gets wet, torn or scratched | Box can't be scanned | Error correction level M, large printed box number, tape over the label |
-| `APP_BASE_URL` changes after labels are printed | Old labels point to a dead link | Fix the production URL before printing; keep the old domain redirecting if it ever changes |
-| Shared demo data in the MVP | Anyone can edit it | Sample data only, with a banner; Beta adds private households |
-| A household member deletes things by mistake | Data loss | Deleting boxes and locations is owner-only in Beta, with a confirm dialog |
-| Private photos leaked through public links | Privacy issue | Private bucket and short-lived signed URLs |
+| Floor plans are inaccurate or slow to draw | Pins land in the wrong place | Keep plans simple, start with one building and two floors |
+| No accounts in the MVP | Anyone can edit or delete any post | Accepted for the demo; Beta adds login and ownership checks |
+| Spam or fake posts in the MVP | Map gets cluttered | Accepted for the demo; Beta requires university login and rate limits |
+| False claims | Item goes to the wrong person | Verification question, one claim per user, finder approves manually |
+| Contact details exposed | Privacy issue | Optional in MVP with a warning; Beta hides contact from guests |
 | Serverless cold starts on Vercel | First request is slow | Small dependency list; accept for a class project |
 | Supabase free tier pauses inactive projects | Demo fails | Open the app the day before the demo |
-| Scope creep (barcodes, valuations, insurance) | Project doesn't finish | Listed as out of scope in the PRD |
+| Too few posts to be useful | App looks empty | Seed demo data; show recent finds on the map by default |

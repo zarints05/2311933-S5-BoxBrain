@@ -1,15 +1,7 @@
-// Entry point: mounts the React app inside the theme provider.
-import { StrictMode } from "react"
+// The React app starts here: it is drawn inside <div id="root"> in index.html.
 import { createRoot } from "react-dom/client"
 import App from "./App"
-import { ThemeProvider } from "./context/ThemeContext"
-import "./index.css"
+import "./styles.css"
 
-// StrictMode (dev only) runs renders and effects twice to catch bugs, so you may see API calls twice.
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <ThemeProvider>
-      <App />
-    </ThemeProvider>
-  </StrictMode>,
-)
+const root = document.getElementById("root") as HTMLElement
+createRoot(root).render(<App />)

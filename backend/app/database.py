@@ -1,31 +1,34 @@
-# Database engine and the per-request Session that the repository uses.
-from collections.abc import Iterator
-from typing import Annotated
+"""
+Database connection.
 
-from fastapi import Depends
+`engine` is the connection to the database.
+`get_db()` gives each request its own session (a short "conversation" with the database)
+and closes it automatically when the request is finished.
+"""
+
 from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.config import settings
+from app.config import get_database_url
 
-DATABASE_URL = settings.database_url
+DATABASE_URL = get_database_url()
 
 if DATABASE_URL.startswith("sqlite"):
-    # check_same_thread=False: FastAPI runs sync routes in a thread pool.
+    # SQLite: allow FastAPI's worker threads to share the connection
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    # Supabase's transaction pooler does the pooling and rejects prepared statements.
+    # Supabase (PostgreSQL) through its connection pooler on port 6543:
+    # - NullPool: don't keep our own pool, Supabase already does the pooling
+    # - prepare_threshold=None: the pooler does not support prepared statements
     engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"prepare_threshold": None})
 
 
-def create_db_and_tables() -> None:
-    """Create missing tables; existing data is kept."""
+def create_tables() -> None:
+    """Create every table that does not exist yet. Existing tables and data are left alone."""
     SQLModel.metadata.create_all(engine)
 
 
-def get_session() -> Iterator[Session]:
-    with Session(engine) as session:
-        yield session
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
+def get_db():
+    """Open a session for one request, then close it."""
+    with Session(engine) as db:
+        yield db

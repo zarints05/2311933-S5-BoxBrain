@@ -1,43 +1,40 @@
-# Settings from environment variables; chooses the database URL (Supabase in production, SQLite locally).
+"""
+Settings for LostSpot.
+
+The only setting we need is where the database is:
+- On Vercel we set DATABASE_URL to the Supabase connection string.
+- On my own computer nothing is set, so we fall back to a small SQLite file.
+"""
+
+import os
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+# The "backend" folder (this file is backend/app/config.py, so we go up two levels)
+BACKEND_FOLDER = Path(__file__).resolve().parent.parent
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-
-# Query parameters that Supabase and Vercel add but libpq (psycopg) rejects.
-_UNSUPPORTED_QUERY_KEYS = {"supa", "pgbouncer"}
+# Extra options Supabase sometimes puts at the end of the URL that our driver does not understand
+OPTIONS_TO_REMOVE = ("pgbouncer=", "supa=")
 
 
-def _to_sqlalchemy_url(url: str) -> str:
-    """Turn a postgres:// URL into one SQLAlchemy can use with psycopg; other URLs are kept."""
-    if not url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://")):
-        return url
-    url = "postgresql+psycopg://" + url.split("://", 1)[1]
-    parts = urlsplit(url)
-    query = [(k, v) for k, v in parse_qsl(parts.query) if k not in _UNSUPPORTED_QUERY_KEYS]
-    return urlunsplit(parts._replace(query=urlencode(query)))
+def get_database_url() -> str:
+    url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
 
+    # No database configured -> use a local SQLite file.
+    # (On Vercel only the /tmp folder can be written to.)
+    if not url:
+        folder = "/tmp" if os.getenv("VERCEL") else BACKEND_FOLDER
+        return f"sqlite:///{folder}/lostspot.db"
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # SQLAlchemy needs to know which driver to use, so "postgresql://" becomes "postgresql+psycopg://"
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
 
-    # Leave both unset locally to use the SQLite file; otherwise point it at Supabase.
-    DATABASE_URL: str | None = None
-    # Set automatically by the Supabase integration on Vercel (transaction pooler URL).
-    POSTGRES_URL: str | None = None
-    # Set by Vercel itself.
-    VERCEL: str | None = None
+    # Remove the options psycopg can't read, keep everything else
+    if "?" in url:
+        address, options = url.split("?", 1)
+        kept = [option for option in options.split("&") if not option.startswith(OPTIONS_TO_REMOVE)]
+        url = address + ("?" + "&".join(kept) if kept else "")
 
-    @property
-    def database_url(self) -> str:
-        url = self.DATABASE_URL or self.POSTGRES_URL
-        if url:
-            return _to_sqlalchemy_url(url)
-        # Vercel's filesystem is read-only except /tmp, which is wiped between invocations.
-        db_dir = Path("/tmp") if self.VERCEL else BACKEND_DIR
-        return f"sqlite:///{(db_dir / 'boxbrain.db').as_posix()}"
-
-
-settings = Settings()
+    return url
