@@ -1,116 +1,113 @@
 # BoxBrain
 
-Remembers what is inside your boxes, suitcases, containers and drawers, and where you put them. Search "where is my passport?" and get the box and its location. Built as a REST API with FastAPI and a React frontend, deployed on Vercel.
+I keep a lot of things in boxes: winter clothes, old documents, kitchen extras. Every time I need something, I end up opening five boxes to find it. BoxBrain fixes that. You give every box a number, write down what is inside and where the box is kept, and then you search for the thing ("passport") instead of digging through boxes.
 
-> **Status:** MVP (`v0.1.0`). The box CRUD API (`/api/v1/boxes`) and an Ant Design frontend work locally with SQLite and in production with Supabase PostgreSQL; accounts, households, QR labels and moving mode are planned for the Beta.
+This is my course project (Zarin Tasnim, 2311933). The backend is FastAPI, the frontend is React with Ant Design, and the whole thing runs on Vercel with a Supabase database.
 
-## Features
+**Status:** MVP, version `0.1.0`. You can add, view, edit and delete boxes, search everything, and see which boxes nobody has opened for a year. Accounts, shared households and QR labels are planned for the Beta.
 
-**MVP** (demo before mid-term)
-- Add a box with its number, label, location, contents (one item per line), notes and the date it was last opened
-- List boxes (by number), view one, edit it and delete it through a REST API (`/api/v1/boxes`)
-- "Where is my X?" search across every box's label, location and contents
-- Flag and filter boxes not opened for 12 months; mark a box as "opened today"
-- Input validation with clear error responses (box numbers are unique)
-- Interactive API docs at `/api/docs`
+## What it can do
 
-**Beta** (demo before final)
-- Sign up and log in (JWT access token + refresh token)
-- Private households shared with family or flatmates, with `owner` and `member` roles
-- QR label for each box: scan it with a phone camera to open the box page
-- Nested locations, photos, box history and moving mode
-- Roles: `user` and `admin`; admin dashboard with stats, ban / unban users
-- Security: Argon2 password hashing, login lockout, rate limits, security headers
+**In the MVP (mid-term):**
 
-## Tech stack
+- Add a box with its number, a label, where it is kept, what is inside (one thing per line), optional notes and the day it was last opened
+- See all boxes as cards, open one to see its details, edit it or delete it
+- Search across labels, locations and contents ("where is my passport?")
+- Show only the boxes that have not been opened for 12 months, and mark a box as "opened today" with one click
+- Light and dark mode
+- Clear error messages, for example when a box number is already used
 
-| Part | Choice |
+**Planned for the Beta (final):**
+
+- Sign up and log in
+- Private households that you can share with family or flatmates
+- A QR label for every box: scan it with your phone to open the box page
+- Rooms inside locations, photos, box history and a "moving house" mode
+- An admin page, and better security (password hashing, rate limits, login lockout)
+
+## Built with
+
+| Part | What I used |
 |---|---|
-| Backend | Python 3.10+, FastAPI, SQLModel |
-| Database | Supabase PostgreSQL (production), SQLite (local) |
-| Frontend | React + TypeScript + Vite, Ant Design (custom orange theme, card layout), React Router |
+| Backend | Python, FastAPI, SQLModel |
+| Database | Supabase PostgreSQL online, a SQLite file on my laptop |
+| Frontend | React, TypeScript, Vite, Ant Design (forms and pop-ups), my own CSS for the look, React Router |
 | Hosting | Vercel (frontend and backend in one project) |
-| Beta extras | Alembic (migrations), PyJWT, Argon2, Supabase Storage, segno (QR codes) |
 
-## Documentation
+## Documents
 
-| Doc | What it covers |
-|---|---|
-| [PRD — Product Requirements Document](docs/01-prd.md) | Goals, features, user stories, milestones |
-| [SRS — Software Requirements Specification](docs/02-srs.md) | Functional and non-functional requirements, permissions, acceptance criteria |
-| [TDD — Technical Design Document](docs/03-tdd.md) | Architecture, data model, API endpoints, auth and security design |
+- [PRD](docs/01-prd.md): what the product is and who it is for
+- [SRS](docs/02-srs.md): the exact requirements
+- [TDD](docs/03-tdd.md): how it is built (section 1.1 describes the MVP as it is now)
 
-## Project structure
+## Folders
 
 ```
-backend/    FastAPI app (routes under /api)
-frontend/   Vite + React + TypeScript
-docs/       PRD, SRS, TDD (product requirements, software requirements, technical design)
-vercel.json Vercel setup: /api/* goes to backend, everything else to frontend
-AGENTS.md   Branch, commit and PR conventions
+backend/
+  main.py            starts the app
+  app/config.py      decides which database to use
+  app/database.py    connects to the database
+  app/boxes/         everything about boxes:
+    models.py          the box table
+    schemas.py         what the API accepts and sends back
+    repository.py      the database queries
+    service.py         the rules (unique number, no future dates)
+    dependencies.py    small helpers for the routes
+    router.py          the API routes
+frontend/src/
+  main.tsx           starts React
+  App.tsx            colours, top bar, footer and the page for each URL
+  api.ts             every call to the backend
+  types.ts           the shape of a box
+  helpers.ts         small helpers (items inside a box, dates, the form, box colours)
+  styles.css         BoxBrain's own colours and layout
+  components/        TopBar, Summary (the number tiles), BoxCard, BoxForm
+  pages/             HomePage, BoxPage
+docs/                PRD, SRS, TDD
+vercel.json          sends /api/... to the backend and everything else to the frontend
 ```
 
-## How it works
+## How a request travels
 
-### Frontend
+When you click "Save box", the page calls `api.ts`, which sends the request to `/api/v1/boxes`. On the backend it goes through three steps:
 
 ```mermaid
 flowchart LR
-    page["Page<br/>HomePage, BoxDetailsPage"] --> comp["Components<br/>BoxForm, BoxGrid"]
-    page --> api["services/api.ts<br/>calls the backend"]
-    api -->|"HTTP"| backend[("Backend API")]
+    A(["Request"]) --> B["router.py<br/>checks the data"]
+    B --> C["service.py<br/>checks the rules"]
+    C --> D["repository.py<br/>saves to the database"]
+    D --> E[("box table")]
 ```
 
-A page shows the screen and keeps its data, components draw the pieces, and `services/api.ts` is the only place that talks to the backend.
+If the data is wrong (for example, an empty label), the answer is `422`. If a rule is broken (a box number that is already used, or a "last opened" date in the future), the answer is `409`. Otherwise the saved box comes back as JSON.
 
-### Backend
+## API
 
-```mermaid
-flowchart LR
-    req(["HTTP request"]) --> router["Router<br/>receives the request"]
-    router --> service["Service<br/>business rules"]
-    service --> repo["Repository<br/>database queries"]
-    repo --> db[("Database")]
-```
-
-Each layer has one job: the router handles HTTP, the service decides what is allowed (for example, box numbers must be unique), and the repository reads and writes the database. The response goes back up the same way.
-
-### REST API
-
-| Method | Path | What it does |
+| Method | URL | What it does |
 |---|---|---|
-| `POST` | `/api/v1/boxes` | Create a box (201; 409 if the number is taken) |
-| `GET` | `/api/v1/boxes?offset=0&limit=20` | List boxes by number, with `total` |
-| `GET` | `/api/v1/boxes/{id}` | Read one box (404 if missing) |
-| `PATCH` | `/api/v1/boxes/{id}` | Update only the fields sent, e.g. `last_opened_on` |
-| `DELETE` | `/api/v1/boxes/{id}` | Delete a box (204) |
+| `GET` | `/api/v1/boxes?offset=0&limit=20` | List boxes sorted by number, plus the total count |
+| `POST` | `/api/v1/boxes` | Add a box (`201`, or `409` if the number is used) |
+| `GET` | `/api/v1/boxes/{id}` | One box (`404` if it doesn't exist) |
+| `PATCH` | `/api/v1/boxes/{id}` | Change only the fields you send |
+| `DELETE` | `/api/v1/boxes/{id}` | Delete a box (`204`) |
 
-## Requirements
+While the backend runs, you can try every route at `/api/docs`.
 
-- [Python](https://www.python.org/downloads/) 3.10+
-- [Node.js](https://nodejs.org/) 22+
+## Running it on your computer
 
-> On macOS/Linux, use `python3` instead of `python`.
+You need Python 3.10 or newer and Node.js 22 or newer. Open two terminals.
 
-## Run locally
-
-You need two terminals: one for the backend and one for the frontend. Boxes are saved in a local SQLite file, `backend/boxbrain.db`, which is created automatically on the first run and is not committed.
-
-### First time (initial setup)
-
-Run this once after cloning the repo.
-
-**Backend** (terminal 1):
+**Terminal 1, backend:**
 
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\Activate.ps1      # macOS/Linux: source .venv/bin/activate
+.venv\Scripts\Activate.ps1        # on Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 fastapi dev main.py
 ```
 
-**Frontend** (terminal 2):
+**Terminal 2, frontend:**
 
 ```bash
 cd frontend
@@ -118,69 +115,28 @@ npm install
 npm run dev
 ```
 
-### Running again (after the initial setup)
+Then open http://localhost:5173.
 
-The virtual environment and `node_modules` already exist, so skip the install steps.
+The next time, you can skip `python -m venv`, `pip install` and `npm install`. Just activate the virtual environment and run `fastapi dev main.py` and `npm run dev`.
 
-**Backend** (terminal 1):
+On your computer the boxes are saved in `backend/boxbrain.db`. It is created automatically the first time. To start over with no boxes, stop the backend and delete that file.
 
-```bash
-cd backend
-.venv\Scripts\Activate.ps1      # macOS/Linux: source .venv/bin/activate
-fastapi dev main.py
-```
+## Putting it online
 
-**Frontend** (terminal 2):
+1. Import the GitHub repo on https://vercel.com/new and deploy (leave Root Directory as `./`).
+2. In the Vercel project, open **Settings → Environment Variables** and add `DATABASE_URL`. Its value is the Supabase "Transaction pooler" connection string (port `6543`). If you connect Supabase through Vercel's integration, `POSTGRES_URL` is added for you and works too.
+3. Redeploy. After that, every push to `main` deploys again on its own.
 
-```bash
-cd frontend
-npm run dev
-```
+Never put the database password in the code or commit a `.env` file.
 
-Run `pip install -r requirements.txt` or `npm install` again only when someone adds or changes a dependency.
+## How I work on it
 
-Open http://localhost:5173. Vite forwards `/api` requests to the backend on port 8000. API docs: http://localhost:8000/api/docs.
+Every change starts as a GitHub issue. I make a branch named `Zarin/#<issue number>-<short title>`, write commits like `feat: add box crud api (#4)`, and open one pull request per issue with `Closes #<issue number>` in the description.
 
-> Add new Python packages to `backend/requirements.txt`.
+## If something goes wrong
 
-> **Reset the data:** stop the backend and delete `backend/boxbrain.db`.
-
-## Environment variables
-
-Locally nothing needs to be set: the app uses the SQLite file `backend/boxbrain.db`. In production (Vercel) the app uses Supabase PostgreSQL. Set variables in Vercel under **Project → Settings → Environment Variables** (a local `.env` is never committed).
-
-| Variable | Needed for | Notes |
-|---|---|---|
-| `DATABASE_URL` | MVP (production) | Supabase transaction pooler URL (port `6543`), e.g. `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`. Leave unset locally to use SQLite. Vercel cannot keep a SQLite file between requests, so without a hosted database the deployed app loses its data. |
-| `POSTGRES_URL` | MVP (production) | Set automatically by the Supabase integration on Vercel. Used when `DATABASE_URL` is not set; `postgres://` and the Supabase-only `supa=` parameter are handled for you. |
-| `JWT_SECRET` | Beta | Long random string, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
-| `ACCESS_TOKEN_MINUTES` | Beta | Default `15` |
-| `REFRESH_TOKEN_DAYS` | Beta | Default `7` |
-
-Never commit secrets or `.env` files. See [TDD, section 15](docs/03-tdd.md#15-supabase-setup) for the Supabase setup.
-
-## Deploy to Vercel
-
-1. Push the repo to GitHub.
-2. Go to https://vercel.com/new, import the repo and click **Deploy**. Keep **Root Directory** as `./`.
-3. Add `DATABASE_URL` (see above) and redeploy.
-
-Every push to `main` redeploys automatically.
-
-## Contributing
-
-Every change starts from a GitHub issue. Branch, commit and pull request rules are in [AGENTS.md](AGENTS.md):
-
-- Branch: `Zarin/#{issue_number}-{task_title}`
-- Commit: `<type>: <summary> (#issue)`, e.g. `feat: add box crud api with sqlmodel and validation (#4)`
-- One pull request per issue, with `Closes #{issue_number}` in the description
-
-## Troubleshooting
-
-- **"Running scripts is disabled" in PowerShell:** run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
-- **`fastapi` not found:** activate the virtual environment first.
-- **`ModuleNotFoundError: sqlmodel`:** run `pip install -r requirements.txt` inside the activated virtual environment.
-- **Boxes look wrong or the database is corrupted:** stop the backend and delete `backend/boxbrain.db`; it is recreated on the next start.
-- **`Request failed: 500` in the app:** the backend isn't running, or `DATABASE_URL` is wrong.
-- **App at localhost:8000 shows an old version:** delete `frontend/dist`.
-- **Vercel build fails:** check **Build Logs** in the Vercel dashboard, and make sure `npm run build` works in `frontend/`.
+- **PowerShell says running scripts is disabled:** run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+- **`fastapi` is not found:** the virtual environment is not active. Activate it first.
+- **The page says `Request failed (500)`:** the backend is not running, or `DATABASE_URL` is wrong.
+- **localhost:8000 shows an old version of the page:** delete the `frontend/dist` folder.
+- **The Vercel build fails:** open the build logs on Vercel, and check that `npm run build` works inside `frontend/`.

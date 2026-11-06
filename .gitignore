@@ -12,3 +12,6 @@ frontend/dist/
 .vercel/
 .vscode/*
 !.vscode/extensions.json
+
+# Local SQLite database (made automatically when the backend starts)
+*.db

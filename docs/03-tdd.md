@@ -4,7 +4,7 @@
 |---|---|
 | **Product** | BoxBrain |
 | **Document** | Technical Design Document (TDD) |
-| **Version** | 1.1 |
+| **Version** | 1.2 |
 | **Date** | November 2026 |
 | **Author** | Zarin Tasnim (2311933) |
 | **Related docs** | [PRD](01-prd.md) · [SRS](02-srs.md) |
@@ -19,24 +19,24 @@ This document explains how BoxBrain will be built: the stack, the architecture, 
 
 The MVP is a smaller version of the design below. It has one table, `box`, and five REST endpoints. Nested locations, separate item records, QR labels, search on the server and moving mode come later; the rest of this document describes that full design.
 
-**Backend layout** (organised by feature, like the class reference project):
+**Backend layout** (one folder per feature, and one file per layer inside it):
 
 ```
 backend/
-├── main.py                 # App entry: mounts the boxes router, maps errors to JSON, serves frontend/dist
+├── main.py                 # Creates the app, builds the table, adds the boxes routes, serves frontend/dist
 └── app/
-    ├── config.py           # Settings from env vars; Supabase URL in production, SQLite file locally
-    ├── database.py         # Engine, create_db_and_tables, per-request Session
+    ├── config.py           # pick_database_url(): Supabase URL online, SQLite file on my laptop
+    ├── database.py         # engine, build_tables(), open_session() for each request
     └── boxes/
-        ├── models.py       # Box table
-        ├── schemas.py      # BoxCreate, BoxUpdate, BoxRead, BoxPage
+        ├── models.py       # Box: the `box` table
+        ├── schemas.py      # NewBox (POST), BoxChanges (PATCH), BoxOut, BoxList
         ├── repository.py   # BoxRepository: every database query for boxes
-        ├── service.py      # BoxService: unique number, date check, updated_at
-        ├── dependencies.py # Builds session -> repository -> service; valid_box loads {box_id} or 404
-        └── router.py       # CRUD routes under /api/v1/boxes
+        ├── service.py      # BoxService: unique number, date check, updated_at; 409 when a rule is broken
+        ├── dependencies.py # get_service() and box_or_404() for Depends(...)
+        └── router.py       # The five routes under /api/v1/boxes
 ```
 
-**Frontend:** React + TypeScript + Vite with Ant Design and React Router. Pages: `HomePage` (stat cards, "where is my X?" search, 12-month filter, grid of box cards, "Add box" modal), `BoxDetailsPage` (view, edit, opened today, delete) and `AboutPage`. Components: `BoxForm`, `BoxGrid`, `BoxStats`. Every backend call is in `services/api.ts`.
+**Frontend:** React + TypeScript + Vite with Ant Design and React Router. Pages: `HomePage` (summary cards, "where is my X?" search, 12-month filter, a card for every box, "Add box" window), `BoxPage` (view, edit, opened today, delete). Components: `TopBar`, `Summary`, `BoxCard` and `BoxForm` (one form used for both adding and editing). Every backend call is in `api.ts`; `types.ts` holds the box shape and `helpers.ts` the small helper functions. Dark mode is a `useState` in `App.tsx`, passed to `TopBar` as a prop. The look comes from `styles.css`: a plain white layout with one accent colour (indigo), and a thin coloured strip on each box card and box page (one of six colours, picked by the box number). Ant Design is still used for the form, the pop-up window, buttons and messages.
 
 **`box` table:**
 
@@ -61,9 +61,9 @@ backend/
 | `PATCH` | `/api/v1/boxes/{box_id}` | Update only the fields sent | `200` | `404`, `409`, `422` |
 | `DELETE` | `/api/v1/boxes/{box_id}` | Delete | `204` | `404` |
 
-**Request flow:** page → `services/api.ts` → `/api/v1/boxes` (Vercel sends `/api/*` to the backend) → router validates the input → `BoxService` checks the rules → `BoxRepository` reads or writes the `box` table → `BoxRead` JSON back to the page.
+**Request flow:** page → `api.ts` → `/api/v1/boxes` (Vercel sends `/api/*` to the backend) → the router checks the body against `NewBox` / `BoxChanges` (422 if it is wrong) → `BoxService` checks the rules (409 if one is broken) → `BoxRepository` reads or writes the `box` table → the box goes back to the page as `BoxOut` JSON.
 
-**Database:** `DATABASE_URL` (Supabase transaction pooler, port 6543) in production; a local `boxbrain.db` SQLite file otherwise. The table is created with `create_all` when the app starts.
+**Database:** `DATABASE_URL` (Supabase transaction pooler, port 6543) in production; a local `boxbrain.db` SQLite file otherwise. The table is created by `build_tables()` (SQLModel `create_all`) when the app starts; a table that already exists is left as it is.
 
 ## 2. Tech stack
 

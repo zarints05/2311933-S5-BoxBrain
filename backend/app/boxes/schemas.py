@@ -1,63 +1,87 @@
-# Request and response shapes; FastAPI validates input against these before any box code runs.
+"""
+What the API accepts and what it sends back.
+
+  NewBox     -> body of POST   (every field is needed)
+  BoxChanges -> body of PATCH  (send only the fields you want to change)
+  BoxOut     -> one box in a response
+  BoxList    -> one page of boxes in a response
+"""
+
 import uuid
 from datetime import date, datetime, timezone
-from typing import Annotated
 
-from pydantic import StringConstraints, field_validator
-from sqlmodel import Field, SQLModel
-
-# Spaces are trimmed before the length check, so "   " is rejected.
-Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-Location = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-Contents = Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)]
-BoxNumber = Annotated[int, Field(ge=1, le=99999)]
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class BoxBase(SQLModel):
-    number: BoxNumber
-    label: Label
-    location: Location
-    contents: Contents = ""
+def strip_spaces(value):
+    """'  Kitchen  ' -> 'Kitchen'. Anything that is not text is left alone."""
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+class NewBox(BaseModel):
+    number: int = Field(ge=1, le=99999)
+    label: str = Field(min_length=1, max_length=200)
+    location: str = Field(min_length=1, max_length=200)
+    contents: str = Field(default="", max_length=2000)
     notes: str | None = Field(default=None, max_length=1000)
     last_opened_on: date
 
+    # Runs before the length checks, so a label of only spaces counts as empty
+    @field_validator("label", "location", "contents", mode="before")
+    @classmethod
+    def remove_extra_spaces(cls, value):
+        return strip_spaces(value)
 
-class BoxCreate(BoxBase):
-    pass
 
-
-class BoxUpdate(SQLModel):
-    number: BoxNumber | None = None
-    label: Label | None = None
-    location: Location | None = None
-    contents: Contents | None = None
+class BoxChanges(BaseModel):
+    number: int | None = Field(default=None, ge=1, le=99999)
+    label: str | None = Field(default=None, min_length=1, max_length=200)
+    location: str | None = Field(default=None, min_length=1, max_length=200)
+    contents: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=1000)
     last_opened_on: date | None = None
 
-    # notes may be cleared with null; the other fields may not.
+    @field_validator("label", "location", "contents", mode="before")
+    @classmethod
+    def remove_extra_spaces(cls, value):
+        return strip_spaces(value)
+
+    # Notes can be emptied with null, but a box always needs these fields.
+    # (This only runs for fields that were actually sent.)
     @field_validator("number", "label", "location", "contents", "last_opened_on")
     @classmethod
-    def not_null(cls, value: object) -> object:
+    def no_null_here(cls, value):
         if value is None:
-            raise ValueError("cannot be null")
+            raise ValueError("this field can't be empty")
         return value
 
 
-class BoxRead(BoxBase):
+class BoxOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # lets us build it straight from a Box row
+
     id: uuid.UUID
+    number: int
+    label: str
+    location: str
+    contents: str
+    notes: str | None
+    last_opened_on: date
     created_at: datetime
     updated_at: datetime
 
-    # SQLite returns naive datetimes; they are stored as UTC.
+    # SQLite forgets the time zone when it saves a datetime. We always save UTC, so put it back.
     @field_validator("created_at", "updated_at")
     @classmethod
-    def as_utc(cls, value: datetime) -> datetime:
-        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    def mark_as_utc(cls, value: datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
-# One page of the list; total counts all boxes, not just this page.
-class BoxPage(SQLModel):
-    items: list[BoxRead]
-    total: int
+class BoxList(BaseModel):
+    items: list[BoxOut]
+    total: int   # how many boxes exist in total, not only on this page
     offset: int
     limit: int

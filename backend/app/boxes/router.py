@@ -1,44 +1,52 @@
-# HTTP layer for /api/v1/boxes: takes the request, calls the service, returns the response.
-from typing import Annotated
+"""
+The URLs of the BoxBrain API. All of them start with /api/v1/boxes.
 
-from fastapi import APIRouter, Query
+  GET    /api/v1/boxes           list boxes (a page at a time)
+  POST   /api/v1/boxes           add a box
+  GET    /api/v1/boxes/{box_id}  one box
+  PATCH  /api/v1/boxes/{box_id}  change some fields of a box
+  DELETE /api/v1/boxes/{box_id}  delete a box
+"""
 
-from app.boxes.dependencies import BoxDep, ServiceDep
+from fastapi import APIRouter, Depends, Query
+
+from app.boxes.dependencies import box_or_404, get_service
 from app.boxes.models import Box
-from app.boxes.schemas import BoxCreate, BoxPage, BoxRead, BoxUpdate
+from app.boxes.schemas import BoxChanges, BoxList, BoxOut, NewBox
+from app.boxes.service import BoxService
 
 router = APIRouter(prefix="/api/v1/boxes", tags=["boxes"])
 
 
-# Create a box with its number, label, location and contents.
-@router.post("", response_model=BoxRead, status_code=201)
-def create_box(data: BoxCreate, service: ServiceDep) -> Box:
-    return service.create_box(data)
-
-
-# List boxes ordered by number, with the total so clients know when they reached the end.
-@router.get("", response_model=BoxPage)
+@router.get("", response_model=BoxList)
 def list_boxes(
-    service: ServiceDep,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> BoxPage:
+    offset: int = Query(default=0, ge=0),          # how many boxes to skip
+    limit: int = Query(default=20, ge=1, le=100),  # how many boxes to send
+    service: BoxService = Depends(get_service),
+):
     return service.list_boxes(offset, limit)
 
 
-# Read one box by id, or 404 if it does not exist.
-@router.get("/{box_id}", response_model=BoxRead)
-def get_box(box: BoxDep) -> Box:
+@router.post("", response_model=BoxOut, status_code=201)
+def add_box(data: NewBox, service: BoxService = Depends(get_service)):
+    return service.add_box(data)
+
+
+@router.get("/{box_id}", response_model=BoxOut)
+def get_box(box: Box = Depends(box_or_404)):
     return box
 
 
-# Update only the fields that were sent; the others stay unchanged.
-@router.patch("/{box_id}", response_model=BoxRead)
-def update_box(box: BoxDep, data: BoxUpdate, service: ServiceDep) -> Box:
-    return service.update_box(box, data)
+@router.patch("/{box_id}", response_model=BoxOut)
+def change_box(
+    data: BoxChanges,
+    box: Box = Depends(box_or_404),
+    service: BoxService = Depends(get_service),
+):
+    return service.change_box(box, data)
 
 
-# Delete a box; 204 means success with no response body.
+# 204 = it worked, and there is nothing to send back
 @router.delete("/{box_id}", status_code=204)
-def delete_box(box: BoxDep, service: ServiceDep) -> None:
+def delete_box(box: Box = Depends(box_or_404), service: BoxService = Depends(get_service)):
     service.delete_box(box)

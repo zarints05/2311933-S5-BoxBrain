@@ -1,51 +1,73 @@
-# Business rules for boxes (unique number, date check, updated_at); called by the router, stores data via the repository.
+"""
+The rules of BoxBrain.
+
+  1. Two boxes can't have the same number.
+  2. "Last opened" can't be a day in the future.
+  3. Every change updates `updated_at`.
+
+If a rule is broken we answer 409 (Conflict) with a short message the page can show.
+"""
+
 import uuid
 from datetime import date, timedelta
 
-from app.boxes.models import Box, utc_now
+from fastapi import HTTPException
+
+from app.boxes.models import Box, now_in_utc
 from app.boxes.repository import BoxRepository
-from app.boxes.schemas import BoxCreate, BoxPage, BoxUpdate
+from app.boxes.schemas import BoxChanges, NewBox
 
 
-class BoxRuleError(Exception):
-    """A business rule was broken; main.py turns it into a 409 response."""
-
-
-# Business rules only: no HTTP and no database calls, everything stored goes through the repository.
 class BoxService:
-    def __init__(self, repo: BoxRepository) -> None:
-        self.repo = repo
+    def __init__(self, repository: BoxRepository):
+        self.repository = repository
 
-    def list_boxes(self, offset: int, limit: int) -> BoxPage:
-        return BoxPage(items=self.repo.list(offset, limit), total=self.repo.count(), offset=offset, limit=limit)
+    def list_boxes(self, offset: int, limit: int) -> dict:
+        return {
+            "items": self.repository.one_page(offset, limit),
+            "total": self.repository.count_all(),
+            "offset": offset,
+            "limit": limit,
+        }
 
-    def get_box(self, box_id: uuid.UUID) -> Box | None:
-        return self.repo.get(box_id)
+    def find_box(self, box_id: uuid.UUID) -> Box | None:
+        return self.repository.find(box_id)
 
-    def create_box(self, data: BoxCreate) -> Box:
-        self._check_number_free(data.number)
-        self._check_opened_date(data.last_opened_on)
-        return self.repo.create(Box.model_validate(data))
+    def add_box(self, data: NewBox) -> Box:
+        self.number_must_be_free(data.number)
+        self.date_must_not_be_future(data.last_opened_on)
 
-    def update_box(self, box: Box, data: BoxUpdate) -> Box:
+        box = Box(**data.model_dump())
+        return self.repository.save(box)
+
+    def change_box(self, box: Box, data: BoxChanges) -> Box:
+        # Only the fields the page actually sent
         changes = data.model_dump(exclude_unset=True)
         if not changes:
-            return box
+            return box  # nothing to do
+
         if "number" in changes and changes["number"] != box.number:
-            self._check_number_free(changes["number"])
+            self.number_must_be_free(changes["number"])
         if "last_opened_on" in changes:
-            self._check_opened_date(changes["last_opened_on"])
-        changes["updated_at"] = utc_now()
-        return self.repo.update(box, changes)
+            self.date_must_not_be_future(changes["last_opened_on"])
+
+        for field, new_value in changes.items():
+            setattr(box, field, new_value)
+        box.updated_at = now_in_utc()
+        return self.repository.save(box)
 
     def delete_box(self, box: Box) -> None:
-        self.repo.delete(box)
+        self.repository.remove(box)
 
-    def _check_number_free(self, number: int) -> None:
-        if self.repo.get_by_number(number) is not None:
-            raise BoxRuleError(f"Box number {number} is already used")
+    # ---- the rules ----
 
-    def _check_opened_date(self, opened_on: date) -> None:
-        # The server runs in UTC; one day of slack lets users ahead of UTC (Dhaka is UTC+6) pick their today.
-        if opened_on > date.today() + timedelta(days=1):
-            raise BoxRuleError("The last opened date cannot be in the future")
+    def number_must_be_free(self, number: int):
+        if self.repository.find_by_number(number):
+            raise HTTPException(status_code=409, detail=f"Box number {number} is already used")
+
+    def date_must_not_be_future(self, day: date):
+        # The server clock is UTC but we are in Dhaka (UTC+6), so "today" can be one day
+        # ahead for us. Allowing one extra day stops that from being rejected.
+        latest_allowed = date.today() + timedelta(days=1)
+        if day > latest_allowed:
+            raise HTTPException(status_code=409, detail="The last opened date cannot be in the future")

@@ -1,63 +1,88 @@
-// Add-box form (shown in a modal); passes the validated values up to the page through onAdd.
-import { PlusOutlined } from "@ant-design/icons"
-import { Button, DatePicker, Flex, Form, Input, InputNumber } from "antd"
-import dayjs from "dayjs"
-import type { BoxInput } from "../types/box"
-import {
-  contentsRules,
-  dateRules,
-  disableFutureDates,
-  labelRules,
-  locationRules,
-  notesRules,
-  numberRules,
-  toBoxInput,
-  type BoxFormValues,
-} from "../utils/boxForm"
+// The form for a box. The home page uses it to add a box,
+// and the box page uses the same form to edit one.
 
-type Props = {
-  nextNumber: number
-  onAdd: (data: BoxInput) => Promise<boolean>
+import { Button, Col, DatePicker, Form, Input, InputNumber, Row, Space } from "antd"
+import { formValuesToInput, isAfterToday, type BoxFormValues } from "../helpers"
+import type { BoxInput } from "../types"
+
+type BoxFormProps = {
+  startValues: Partial<BoxFormValues>
+  saveText: string // text on the save button
+  onSave: (input: BoxInput) => void
+  onCancel?: () => void // only the edit form has a Cancel button
 }
 
-export function BoxForm({ nextNumber, onAdd }: Props) {
-  const [form] = Form.useForm<BoxFormValues>()
-
-  const handleFinish = async (values: BoxFormValues) => {
-    // On success the page remounts this form (new key), which clears it.
-    await onAdd(toBoxInput(values))
-  }
-
+export default function BoxForm({ startValues, saveText, onSave, onCancel }: BoxFormProps) {
   return (
     <Form
-      form={form}
       layout="vertical"
-      initialValues={{ number: nextNumber, last_opened_on: dayjs() }}
-      onFinish={handleFinish}
+      initialValues={startValues}
+      // onFinish only runs when every rule below passes
+      onFinish={(values: BoxFormValues) => onSave(formValuesToInput(values))}
+      style={{ marginTop: 8 }}
     >
-      <Flex gap={12} style={{ marginTop: 8 }}>
-        <Form.Item name="number" rules={numberRules} style={{ marginBottom: 12, width: 140 }}>
-          <InputNumber min={1} max={99999} prefix="BOX" aria-label="Box number" style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="label" rules={labelRules} style={{ marginBottom: 12, flex: 1 }}>
-          <Input placeholder="Label, e.g. Winter clothes" aria-label="Box label" />
-        </Form.Item>
-      </Flex>
-      <Form.Item name="location" rules={locationRules} style={{ marginBottom: 12 }}>
-        <Input placeholder="Where is it? e.g. Storage room, top shelf" aria-label="Location" />
+      <Row gutter={12}>
+        <Col xs={24} sm={8}>
+          <Form.Item name="number" label="Box number" rules={[{ required: true, message: "Give the box a number" }]}>
+            <InputNumber min={1} max={99999} prefix="BOX" aria-label="Box number" style={{ width: "100%" }} />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={16}>
+          <Form.Item
+            name="label"
+            label="Label"
+            rules={[
+              { required: true, whitespace: true, message: "Give the box a label" },
+              { max: 200, message: "Keep the label under 200 characters" },
+            ]}
+          >
+            <Input placeholder="e.g. Winter clothes" aria-label="Box label" />
+          </Form.Item>
+        </Col>
+      </Row>
+
+      <Form.Item
+        name="location"
+        label="Where is it?"
+        rules={[
+          { required: true, whitespace: true, message: "Write where the box is kept" },
+          { max: 200, message: "Keep the location under 200 characters" },
+        ]}
+      >
+        <Input placeholder="e.g. Storage room, top shelf" aria-label="Location" />
       </Form.Item>
-      <Form.Item name="contents" rules={contentsRules} style={{ marginBottom: 12 }}>
-        <Input.TextArea rows={4} placeholder={"Contents, one item per line\n3 sweaters\nJacket\nScarf"} aria-label="Contents" />
+
+      <Form.Item
+        name="contents"
+        label="What's inside? (one item per line)"
+        rules={[{ max: 2000, message: "That's too long (2000 characters at most)" }]}
+      >
+        <Input.TextArea rows={5} placeholder={"3 sweaters\nJacket\nScarf"} aria-label="Contents" />
       </Form.Item>
-      <Form.Item name="notes" rules={notesRules} style={{ marginBottom: 12 }}>
-        <Input placeholder="Notes (optional)" aria-label="Notes" />
-      </Form.Item>
-      <Form.Item name="last_opened_on" label="Last opened" rules={dateRules} style={{ marginBottom: 12 }}>
-        <DatePicker format="YYYY-MM-DD" disabledDate={disableFutureDates} style={{ width: "100%" }} />
-      </Form.Item>
-      <Button type="primary" htmlType="submit" icon={<PlusOutlined />} block size="large">
-        Save box
-      </Button>
+
+      <Row gutter={12}>
+        <Col xs={24} sm={14}>
+          <Form.Item name="notes" label="Notes" rules={[{ max: 1000, message: "Keep notes under 1000 characters" }]}>
+            <Input placeholder="Optional" aria-label="Notes" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={10}>
+          <Form.Item name="last_opened_on" label="Last opened" rules={[{ required: true, message: "Pick a date" }]}>
+            <DatePicker format="YYYY-MM-DD" disabledDate={isAfterToday} style={{ width: "100%" }} />
+          </Form.Item>
+        </Col>
+      </Row>
+
+      <Space>
+        <Button type="primary" htmlType="submit" size="large">
+          {saveText}
+        </Button>
+        {onCancel && (
+          <Button size="large" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+      </Space>
     </Form>
   )
 }

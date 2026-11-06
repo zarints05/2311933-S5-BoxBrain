@@ -1,0 +1,523 @@
+/* BoxBrain's own look, on top of Ant Design */
+
+/* ---------- Colours (the dark ones are used when dark mode is on) ---------- */
+
+.app {
+  --page: #f6f6fa;
+  --card: #ffffff;
+  --text: #2a2238;
+  --muted: #7b7190;
+  --line: #e8e6ef;
+  --accent: #4f46e5;
+  --accent-soft: #eef0ff;
+  font-family: "Nunito", system-ui, sans-serif;
+  background: var(--page);
+  color: var(--text);
+}
+
+.app.dark {
+  --page: #16131d;
+  --card: #221d2c;
+  --text: #f4effb;
+  --muted: #a69cba;
+  --line: #322a3f;
+  --accent: #8b87ff;
+  --accent-soft: #2b2850;
+}
+
+body {
+  margin: 0;
+}
+
+/* ---------- Top bar ---------- */
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 24px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 1.35rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.logo:hover {
+  color: var(--text);
+}
+
+/* A little box drawn with CSS: a square with a lid line across the top */
+.logo-box {
+  position: relative;
+  width: 30px;
+  height: 26px;
+  border: 3px solid var(--accent);
+  border-radius: 6px;
+}
+
+.logo-box::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: 6px;
+  border-top: 3px solid var(--accent);
+}
+
+.mode-button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--text);
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.mode-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------- Page ---------- */
+
+.page {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 16px 12px;
+  box-sizing: border-box;
+}
+
+.footer {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ---------- Home: title, add button and search ---------- */
+
+.hero {
+  color: var(--text);
+}
+
+.hero-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 2.2rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.hero p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.add-button {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 22px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.add-button:hover {
+  opacity: 0.9;
+}
+
+.hero-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 18px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+}
+
+.hero-search:focus-within {
+  border-color: var(--accent);
+}
+
+.hero-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 1.05rem;
+  color: var(--text);
+  background: transparent;
+}
+
+.hero-search .search-icon {
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.clear-search {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------- Home: number tiles (white, with a coloured icon) ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin: 20px 0;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+}
+
+.tile.orange .tile-icon {
+  background: #fff1e6;
+  color: #ea580c;
+}
+
+.tile.teal .tile-icon {
+  background: #e6f6f4;
+  color: #0d9488;
+}
+
+.tile.purple .tile-icon {
+  background: #f1ecff;
+  color: #7c3aed;
+}
+
+.tile-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  font-size: 20px;
+}
+
+.tile-number {
+  display: block;
+  font-size: 1.7rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.tile-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* ---------- Home: filter row ---------- */
+
+.filter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.filter-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 16px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pill.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.count {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ---------- Box cards ---------- */
+
+.box-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+/* --box is the box's own colour, set on each card */
+.box-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-top: 5px solid var(--box);
+  border-radius: 18px;
+  background: var(--card);
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+
+.box-card:hover {
+  box-shadow: 0 10px 24px rgba(42, 34, 56, 0.1);
+}
+
+.box-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 0;
+}
+
+.box-word {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.box-number {
+  color: var(--box);
+}
+
+.box-number {
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.old-badge {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.box-card-body {
+  flex: 1;
+  padding: 14px 18px 16px;
+}
+
+.box-label {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.box-place {
+  margin: 4px 0 12px;
+  color: var(--muted);
+}
+
+/* Items inside a box */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--page);
+  border: 1px solid var(--line);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+/* An item that matches the search */
+.chip.match {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chip.more {
+  color: var(--muted);
+}
+
+.empty-text {
+  color: var(--muted);
+}
+
+.box-card-actions {
+  display: flex;
+  border-top: 1px solid var(--line);
+}
+
+.box-card-actions > * {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+}
+
+.empty-state {
+  padding: 50px 20px;
+  border: 2px dashed var(--line);
+  border-radius: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+/* ---------- Box page ---------- */
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font: inherit;
+  padding: 0;
+}
+
+.back-link:hover {
+  color: var(--text);
+}
+
+.box-page {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.box-hero {
+  padding: 22px 24px 4px;
+  border: 1px solid var(--line);
+  border-top: 6px solid var(--box);
+  border-bottom: none;
+  border-radius: 20px 20px 0 0;
+  background: var(--card);
+}
+
+.box-hero .box-number {
+  font-size: 3rem;
+}
+
+.box-hero h1 {
+  margin: 10px 0 2px;
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: var(--text);
+}
+
+.box-hero-place {
+  color: var(--muted);
+}
+
+.panel {
+  padding: 20px 24px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--card);
+}
+
+.box-hero + .panel {
+  border-top: none;
+  border-radius: 0 0 20px 20px;
+}
+
+.panel h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.panel-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 700px) {
+  .top-bar {
+    padding: 12px 16px;
+    gap: 12px;
+  }
+
+  .hero h1 {
+    font-size: 1.8rem;
+  }
+
+  .tiles {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .box-page {
+    grid-template-columns: 1fr;
+  }
+}
