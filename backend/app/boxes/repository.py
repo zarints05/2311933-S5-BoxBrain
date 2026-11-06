@@ -1,4 +1,10 @@
-# Data access layer: every database query for boxes lives here, called only by the service.
+"""
+Talking to the database.
+
+Every query about boxes is written in this one class.
+The service asks for boxes; it never writes SQL itself.
+"""
+
 import uuid
 
 from sqlmodel import Session, func, select
@@ -6,38 +12,33 @@ from sqlmodel import Session, func, select
 from app.boxes.models import Box
 
 
-# The only class that knows where boxes are stored; the service calls it and never sees SQL.
 class BoxRepository:
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self, session: Session):
+        self.db = session
 
-    # Ordered by box number, the way the boxes are labelled in real life.
-    def list(self, offset: int, limit: int) -> list[Box]:
-        statement = select(Box).order_by(Box.number).offset(offset).limit(limit)
-        return list(self.session.exec(statement).all())
+    def one_page(self, offset: int, limit: int) -> list[Box]:
+        # Sorted by box number, like the boxes on a shelf
+        query = select(Box).order_by(Box.number).offset(offset).limit(limit)
+        return list(self.db.exec(query))
 
-    def count(self) -> int:
-        return self.session.exec(select(func.count()).select_from(Box)).one()
+    def count_all(self) -> int:
+        query = select(func.count()).select_from(Box)
+        return self.db.exec(query).one()
 
-    def get(self, box_id: uuid.UUID) -> Box | None:
-        return self.session.get(Box, box_id)
+    def find(self, box_id: uuid.UUID) -> Box | None:
+        return self.db.get(Box, box_id)
 
-    def get_by_number(self, number: int) -> Box | None:
-        return self.session.exec(select(Box).where(Box.number == number)).first()
+    def find_by_number(self, number: int) -> Box | None:
+        query = select(Box).where(Box.number == number)
+        return self.db.exec(query).first()
 
-    def create(self, box: Box) -> Box:
-        return self._save(box)
-
-    def update(self, box: Box, patch: dict) -> Box:
-        box.sqlmodel_update(patch)
-        return self._save(box)
-
-    def delete(self, box: Box) -> None:
-        self.session.delete(box)
-        self.session.commit()
-
-    def _save(self, box: Box) -> Box:
-        self.session.add(box)
-        self.session.commit()
-        self.session.refresh(box)
+    def save(self, box: Box) -> Box:
+        """Insert a new box or store the changes of an existing one."""
+        self.db.add(box)
+        self.db.commit()
+        self.db.refresh(box)  # reload it so we get the saved values back
         return box
+
+    def remove(self, box: Box) -> None:
+        self.db.delete(box)
+        self.db.commit()

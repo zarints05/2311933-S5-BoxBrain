@@ -1,40 +1,52 @@
 """
-Settings for LostSpot.
+BoxBrain settings.
 
-The only setting we need is where the database is:
-- On Vercel we set DATABASE_URL to the Supabase connection string.
-- On my own computer nothing is set, so we fall back to a small SQLite file.
+There is really only one setting: which database to talk to.
+  * Online (Vercel): Supabase gives us POSTGRES_URL, or I set DATABASE_URL myself.
+  * On my laptop: nothing is set, so a small SQLite file called boxbrain.db is used.
 """
 
 import os
 from pathlib import Path
 
-# The "backend" folder (this file is backend/app/config.py, so we go up two levels)
-BACKEND_FOLDER = Path(__file__).resolve().parent.parent
+# backend/app/config.py -> going up two folders gives the "backend" folder
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-# Extra options Supabase sometimes puts at the end of the URL that our driver does not understand
-OPTIONS_TO_REMOVE = ("pgbouncer=", "supa=")
+# Supabase adds these to the end of its URL, but the psycopg driver does not know them
+UNKNOWN_TO_PSYCOPG = {"pgbouncer", "supa"}
 
 
-def get_database_url() -> str:
-    url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+def tidy_postgres_url(url: str) -> str:
+    """Make a Supabase URL usable by SQLAlchemy + psycopg."""
+    # 1. Tell SQLAlchemy to use the psycopg driver: "postgres://..." -> "postgresql+psycopg://..."
+    scheme, rest = url.split("://", 1)
+    url = "postgresql+psycopg://" + rest
 
-    # No database configured -> use a local SQLite file.
-    # (On Vercel only the /tmp folder can be written to.)
-    if not url:
-        folder = "/tmp" if os.getenv("VERCEL") else BACKEND_FOLDER
-        return f"sqlite:///{folder}/lostspot.db"
+    # 2. Throw away the options psycopg would complain about, keep the rest
+    address, _, options = url.partition("?")
+    good_options = []
+    for option in options.split("&"):
+        name = option.split("=")[0]
+        if option and name not in UNKNOWN_TO_PSYCOPG:
+            good_options.append(option)
 
-    # SQLAlchemy needs to know which driver to use, so "postgresql://" becomes "postgresql+psycopg://"
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://"):]
-    if url.startswith("postgresql://"):
-        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    if good_options:
+        return address + "?" + "&".join(good_options)
+    return address
 
-    # Remove the options psycopg can't read, keep everything else
-    if "?" in url:
-        address, options = url.split("?", 1)
-        kept = [option for option in options.split("&") if not option.startswith(OPTIONS_TO_REMOVE)]
-        url = address + ("?" + "&".join(kept) if kept else "")
 
-    return url
+def pick_database_url() -> str:
+    url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+
+    if url and url.startswith("postgres"):
+        return tidy_postgres_url(url)
+    if url:
+        return url  # any other URL (for example sqlite:///...) is used as it is
+
+    # Nothing set: use SQLite. Vercel only lets us write inside /tmp.
+    on_vercel = bool(os.environ.get("VERCEL"))
+    folder = Path("/tmp") if on_vercel else BACKEND_DIR
+    return "sqlite:///" + (folder / "boxbrain.db").as_posix()
+
+
+DATABASE_URL = pick_database_url()
